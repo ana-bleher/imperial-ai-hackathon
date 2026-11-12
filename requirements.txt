@@ -1,0 +1,7 @@
+anthropic
+python-dotenv
+tavily-python
+e2b-code-interpreter
+streamlit
+pandas
+requests
