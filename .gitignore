@@ -218,3 +218,15 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Mac system files
+.DS_Store
+
+# Frontend (if you add Lovable/React code)
+node_modules/
+.next/
+
+# Large data files – share via Drive instead
+data/*.csv
+data/*.parquet
+data/*.xlsx
