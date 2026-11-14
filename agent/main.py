@@ -5,6 +5,8 @@ The story (scenes, order, branches, decisions, endings) comes from data/story.js
 Run locally:  uvicorn agent.main:app --reload
 """
 import asyncio
+import base64
+import binascii
 import hashlib
 import json
 import logging
@@ -24,6 +26,7 @@ from dotenv import load_dotenv
 load_dotenv()  # ANTHROPIC_API_KEY for the tutor agent (never committed)
 
 from agent import fallback, tutor  # noqa: E402
+from tools import paint_avatar  # noqa: E402
 from tools import voice as voice_tools  # noqa: E402
 
 logging.basicConfig(level=logging.INFO)
@@ -33,6 +36,7 @@ ROOT = Path(__file__).resolve().parent.parent
 STATIC = ROOT / "static"
 (STATIC / "audio").mkdir(parents=True, exist_ok=True)
 (STATIC / "scenes").mkdir(parents=True, exist_ok=True)
+(STATIC / "avatars").mkdir(parents=True, exist_ok=True)
 
 STORY_PATH = ROOT / "data" / "story.json"
 
@@ -248,7 +252,33 @@ def scene_payload(sess: dict, request: Request, narration_audio: str | None = No
         "challenge": sess["challenge"],
         "challenge_audio_url": audio_url(request, challenge_audio),
         "choices": fallback.scene_choices(scene),
+        "avatar_url": audio_url(request, sess.get("avatar_path")),  # null until the painting is ready
     }
+
+
+def decode_avatar_png(value) -> bytes | None:
+    """The child's drawn avatar as PNG bytes, from base64 (a data: URL prefix is allowed). None if invalid."""
+    if not isinstance(value, str) or not value:
+        return None
+    if value.startswith("data:"):
+        value = value.partition(",")[2]
+    try:
+        png = base64.b64decode(value, validate=True)
+    except (binascii.Error, ValueError):
+        return None
+    return png if png.startswith(b"\x89PNG\r\n\x1a\n") else None
+
+
+def cached_avatar(png: bytes) -> str | None:
+    """The /static path of an already painted avatar for this drawing, without calling fal."""
+    path = paint_avatar.AVATAR_DIR / f"{paint_avatar.cache_key(png)}.png"
+    return f"/static/avatars/{path.name}" if path.exists() else None
+
+
+async def paint_avatar_for(sess: dict, png: bytes) -> None:
+    """Paint in a worker thread; the PNG lives only in this task and is dropped when it ends.
+    paint() returns None when FAL_KEY is missing or painting fails, so avatar_url stays null."""
+    sess["avatar_path"] = await asyncio.to_thread(paint_avatar.paint, png)
 
 
 def enter_scene(sess: dict, scene_id: str, challenge: dict | None = None) -> None:
@@ -300,12 +330,15 @@ async def session_start(request: Request):
     if not isinstance(body, dict):
         body = {}
     name = body.get("child_name", "Friend")
+    avatar = body.get("avatar") if isinstance(body.get("avatar"), dict) else {}
+    avatar_png = decode_avatar_png(avatar.get("image_png"))
+    avatar = {k: v for k, v in avatar.items() if k != "image_png"}  # never stored, only painted
     child_id = f"{re.sub(r'[^a-z0-9]+', '-', name.lower()).strip('-') or 'child'}-1"
     child = {
         "child_name": name,
         "age": body.get("age"),
         "pronouns": body.get("pronouns", "they"),
-        "avatar": body.get("avatar", {}),
+        "avatar": avatar,
     }
     CHILDREN.setdefault(child_id, {**child, "sessions": 0})
     CHILDREN[child_id]["sessions"] += 1
@@ -314,8 +347,12 @@ async def session_start(request: Request):
     sess = {
         "session_id": session_id, "child_id": child_id, "child": child,
         "date": date.today().isoformat(), "stars": 0, "scene_attempts": 0,
-        "log": [], **fallback.new_session_state(),
+        "log": [], "avatar_path": None, **fallback.new_session_state(),
     }
+    if avatar_png:
+        sess["avatar_path"] = cached_avatar(avatar_png)
+        if sess["avatar_path"] is None:
+            in_background(paint_avatar_for(sess, avatar_png))  # never blocks the response
     in_background(tutor.warm_up())  # so the first /turn does not pay for a cold Anthropic connection
     resume = body.get("resume_scene_id")
     first = resume if isinstance(resume, str) and resume in SCENES else START  # invalid: ignored
@@ -327,7 +364,8 @@ async def session_start(request: Request):
         narration_path(sess, first), challenge_path(sess),
         voice(voice_tools.speak, intro_text, timeout=NARRATION_TIMEOUT))
     in_background(speak_all_narration(sess))         # the rest is generated while the child listens
-    return {"session_id": session_id, "child_id": child_id, "avatar_url": None, "stars": 0,
+    return {"session_id": session_id, "child_id": child_id, "stars": 0,
+            "avatar_url": audio_url(request, sess["avatar_path"]),  # set now only if already painted
             "intro": {"text": intro_text, "audio_url": audio_url(request, intro_audio)},
             "scene": scene_payload(sess, request, first_audio, first_challenge_audio)}
 

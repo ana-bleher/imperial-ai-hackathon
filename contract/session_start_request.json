@@ -2,6 +2,6 @@
   "child_name": "Mia",
   "age": 5,
   "pronouns": "she",
-  "avatar": {"skin_tone": "medium", "hair_style": "curly", "hair_colour": "red", "outfit": "raincoat", "pet": "fox"},
+  "avatar": {"skin_tone": "medium", "hair_style": "curly", "hair_colour": "red", "outfit": "raincoat", "pet": "fox", "image_png": null},
   "resume_scene_id": null
 }

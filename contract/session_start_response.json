@@ -17,6 +17,7 @@
     "avatar_position": {"x": 0.26, "y": 0.64, "scale": 0.32},
     "challenge": {"level": 1, "prompt": "Can you say 'afternoon'?", "target_words": ["afternoon"]},
     "challenge_audio_url": null,
-    "choices": null
+    "choices": null,
+    "avatar_url": null
   }
 }
