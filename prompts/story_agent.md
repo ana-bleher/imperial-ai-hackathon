@@ -69,6 +69,7 @@ use the same type twice in a row (`QUESTION TYPES SO FAR`).
 
 For recall, count and colour the answer must be in the narration and the
 prompt must NOT contain it. Never target the child's name.
+If a practice word appears in this scene, prefer asking about it.
 
 Hints step down: on a miss with attempts left, the retry is one step easier
 (`ON RETRY, ask must step down to`):

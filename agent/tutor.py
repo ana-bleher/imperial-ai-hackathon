@@ -77,7 +77,6 @@ async def call_model(messages: list[dict]):
         tools=TOOLS,
         tool_choice={"type": "auto"},
         # Latency matters more than depth here: no thinking, low effort.
-        thinking={"type": "between_tools"},
         output_config={"effort": "low"},
         messages=messages,
     )
@@ -258,11 +257,13 @@ def apply_speaking(sess, scene, narration, transcript, calls, next_narration, na
     new_challenge = next_challenge = None
     if retry:  # one step easier: the agent's, or the fallback's step down
         if "ask" in calls:
-            new_challenge = check_challenge(calls["ask"], narration, level, name_words, retry_from=challenge)
+            new_challenge = safe_ask(check_challenge(calls["ask"], narration, level, name_words,
+                                                     retry_from=challenge), transcript, vocab)
         else:
             new_challenge = questions.step_down(challenge, narration, sess["key_word"], level)
     elif "ask" in calls and next_narration:
-        next_challenge = check_challenge(calls["ask"], next_narration, level, name_words)
+        next_challenge = safe_ask(check_challenge(calls["ask"], next_narration, level, name_words),
+                                  transcript, vocab)
 
     note = calls.get("notify_parent")
     if note and leaks_child_words(note, transcript, vocab):
@@ -336,6 +337,13 @@ async def _ask_agent(message: str) -> tuple[dict | None, dict]:
     return calls, meta
 
 
+def safe_ask(ch: dict | None, transcript: str, vocab: set[str]) -> dict | None:
+    """The agent's question is spoken to the child: same leak check as its `say` line."""
+    if ch and leaks_child_words(ch["prompt"], transcript, vocab):
+        raise InvalidAgentOutput("question repeats the child's own words")
+    return ch
+
+
 def clean_reason(ch: dict | None, transcript: str, vocab: set[str]) -> dict | None:
     """The agent's reason for its question goes to the parent dashboard: never the child's words."""
     if ch and leaks_child_words(ch.get("reason", ""), transcript, vocab):
@@ -368,8 +376,9 @@ async def decide(sess: dict, scene: dict, narration: str, transcript: str, *,
                 meta["fallback_reason"] = f"invalid agent output: {e}"
             if upcoming and "ask" in calls and not meta["fallback_reason"]:
                 try:  # the agent's question for the next scene; invalid -> its authored question
-                    d["next_challenge"] = clean_reason(
-                        check_challenge(calls["ask"], upcoming, sess["level"], name_words), transcript, vocab)
+                    d["next_challenge"] = clean_reason(safe_ask(
+                        check_challenge(calls["ask"], upcoming, sess["level"], name_words), transcript, vocab),
+                        transcript, vocab)
                 except InvalidAgentOutput as e:
                     meta["fallback_reason"] = f"invalid agent question: {e}"
         _finish(meta)

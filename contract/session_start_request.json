@@ -3,5 +3,6 @@
   "age": 5,
   "pronouns": "she",
   "avatar": {"skin_tone": "medium", "hair_style": "curly", "hair_colour": "red", "outfit": "raincoat", "pet": "fox", "image_png": null},
+  "practice_words": ["lantern", "river"],
   "resume_scene_id": null
 }

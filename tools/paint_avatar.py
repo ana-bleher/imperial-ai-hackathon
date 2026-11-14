@@ -31,6 +31,25 @@ PROMPT = (
     "characters. Illustrated only, never photorealistic."
 )
 TRAIT_KEYS = ("skin_tone", "hair_style", "hair_colour", "outfit")
+# The frontend sends skin_tone and hair_colour as hex swatches; fal needs words.
+SKIN_TONES = {"#f2c9a5": "porcelain", "#dfa078": "peach", "#b97450": "warm tan",
+              "#95603e": "golden brown", "#70452f": "deep brown", "#4a2d24": "rich brown"}
+HAIR_COLOURS = {"#171515": "black", "#34241f": "dark brown", "#79513b": "light brown",
+                "#d9b86a": "blonde", "#a94d31": "red", "#647693": "grey-blue"}
+HEX = re.compile(r"#?([0-9a-fA-F]{6})")
+
+
+def colour_word(value: str, labels: dict[str, str]) -> str:
+    """A hex swatch as a word: its label, or light / medium / deep by brightness. Words pass through."""
+    match = HEX.fullmatch(value.strip())
+    if not match:
+        return value
+    hex_ = match.group(1).lower()
+    if f"#{hex_}" in labels:
+        return labels[f"#{hex_}"]
+    r, g, b = (int(hex_[i:i + 2], 16) for i in (0, 2, 4))
+    brightness = 0.299 * r + 0.587 * g + 0.114 * b
+    return "light" if brightness > 170 else "medium" if brightness > 90 else "deep"
 
 
 def clean_traits(traits: dict | None) -> dict:
@@ -38,6 +57,8 @@ def clean_traits(traits: dict | None) -> dict:
     cleaned = {}
     for key in TRAIT_KEYS:
         value = (traits or {}).get(key)
+        if isinstance(value, str) and key in ("skin_tone", "hair_colour"):
+            value = colour_word(value, SKIN_TONES if key == "skin_tone" else HAIR_COLOURS)
         if isinstance(value, str):
             value = re.sub(r"[^A-Za-z -]+", " ", value.replace("_", " "))
             value = " ".join(value.split())[:30].strip()
