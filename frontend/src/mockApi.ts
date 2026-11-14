@@ -22,6 +22,7 @@ export type Scene = {
   image_url: string;
   avatar_position: { x: number; y: number; scale: number };
   challenge: { level: 1 | 2 | 3; prompt: string; target_words: string[] };
+  challenge_audio_url?: string | null;
   choices: null | { word: string; label: string; icon: string }[];
 };
 
@@ -587,9 +588,14 @@ const fallbackSessions = new Map<string, string>();
 const mockOnlySessions = new Set<string>();
 let offlineDemo = false;
 
-async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
+// Real backend turns = agent (up to 6s) + ElevenLabs voice (up to 5s) + network,
+// and the free Render server can take ~50s to wake up. Give it time before falling back.
+const TIMEOUTS = { start: 60_000, turn: 25_000, progress: 12_000 };
+let turnFailures = 0;
+
+async function requestJson<T>(path: string, init?: RequestInit, timeoutMs = 12_000): Promise<T> {
   const controller = new AbortController();
-  const timeout = window.setTimeout(() => controller.abort(), 6000);
+  const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
   try {
     const response = await fetch(`${API_URL}${path}`, {
       ...init,
@@ -631,7 +637,7 @@ export async function startSession(child: ApiChild): Promise<StartSessionRespons
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(child),
-    });
+    }, TIMEOUTS.start);
     fallbackSessions.set(live.session_id, fallback.session_id);
     return live;
   } catch {
@@ -676,19 +682,23 @@ export async function sendTurn(
   }
 
   try {
-    const live = await requestJson<SendTurnResponse>("/turn", init);
+    const live = await requestJson<SendTurnResponse>("/turn", init, TIMEOUTS.turn);
+    turnFailures = 0;
     void mockSendTurn(fallbackSessionId, transcript);
     return live;
-  } catch {
+  } catch (error) {
+    console.error("[Speakaboo] /turn failed; using the offline story for this turn.", error);
     offlineDemo = true;
-    mockOnlySessions.add(session_id);
+    // Only give up on the live backend after two failures in a row.
+    turnFailures += 1;
+    if (turnFailures >= 2) mockOnlySessions.add(session_id);
     return mockSendTurn(fallbackSessionId, transcript);
   }
 }
 
 export async function getProgress(child_id: number): Promise<ProgressResponse> {
   try {
-    return await requestJson<ProgressResponse>(`/progress/${child_id}`);
+    return await requestJson<ProgressResponse>(`/progress/${child_id}`, undefined, TIMEOUTS.progress);
   } catch {
     offlineDemo = true;
     return mockGetProgress(child_id);

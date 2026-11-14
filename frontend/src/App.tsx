@@ -167,6 +167,33 @@ const outfitColors: Record<string, [string, string]> = {
   Pyjamas: ["#7C83BD", "#F2C14E"],
 };
 
+// Every narration/feedback clip we create, so only one voice ever plays at a time.
+const LIVE_AUDIO = new Set<HTMLAudioElement>();
+function stopAllAudio() {
+  LIVE_AUDIO.forEach((audio) => {
+    audio.pause();
+    LIVE_AUDIO.delete(audio);
+  });
+}
+
+// Soft, slightly wobbly edges + paper grain so the flat avatar sits inside the
+// watercolour backgrounds instead of looking pasted on top.
+function WatercolorFilter() {
+  return (
+    <svg width="0" height="0" style={{ position: "absolute" }} aria-hidden="true">
+      <filter id="watercolor" x="-10%" y="-10%" width="120%" height="120%">
+        <feTurbulence type="fractalNoise" baseFrequency="0.035" numOctaves="2" seed="7" result="noise" />
+        <feDisplacementMap in="SourceGraphic" in2="noise" scale="3.5" xChannelSelector="R" yChannelSelector="G" result="wobbly" />
+        <feGaussianBlur in="wobbly" stdDeviation="0.6" result="soft" />
+        <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="1" seed="3" result="grain" />
+        <feColorMatrix in="grain" type="saturate" values="0" result="greyGrain" />
+        <feComposite in="greyGrain" in2="soft" operator="in" result="grainOnShape" />
+        <feBlend in="soft" in2="grainOnShape" mode="multiply" />
+      </filter>
+    </svg>
+  );
+}
+
 function Avatar({ child, size = "large" }: { child: Child; size?: "small" | "medium" | "large" }) {
   const [outfitMain, outfitSecond] = outfitColors[child.outfit] ?? ["#5FB3A8", "#FFF6E5"];
   const hair = child.hairColor;
@@ -1290,6 +1317,7 @@ function StoryScene({
   ) => {
     speechRunRef.current += 1;
     window.speechSynthesis?.cancel();
+    stopAllAudio();
     const previousAudio = audioRef.current;
     if (previousAudio) {
       previousAudio.pause();
@@ -1327,6 +1355,8 @@ function StoryScene({
     }
 
     const audio = new Audio(audioUrl);
+    LIVE_AUDIO.add(audio);
+    audio.addEventListener("ended", () => LIVE_AUDIO.delete(audio));
     audioRef.current = audio;
     let complete = false;
     let started = false;
@@ -1381,8 +1411,8 @@ function StoryScene({
     audio.onended = finish;
     audio.onerror = () => fallBack(audio.error ?? new Error("Audio failed to load"));
     startTimeout = window.setTimeout(() => {
-      if (!started) fallBack(new Error("Audio did not start within 3 seconds"));
-    }, 3000);
+      if (!started) fallBack(new Error("Audio did not start within 8 seconds"));
+    }, 8000);
     void audio.play().catch(fallBack);
   };
 
@@ -1631,10 +1661,24 @@ function StoryScene({
     setCurrentScene(decisionScene);
     setShowChoices(false);
     setPhase("narrating");
-    speakText(decisionScene.challenge.prompt, () => {
+    playAudioOrSpeech(decisionScene.challenge.prompt, decisionScene.challenge_audio_url ?? null, () => {
       choiceTimerRef.current = window.setTimeout(() => setShowChoices(true), 4000);
       startListening("decision");
     });
+  };
+
+  // The agent's question for this scene (e.g. "Can you say 'lantern'?") is spoken out loud,
+  // so the child hears what the guide is asking before the mic opens.
+  const askChallenge = (challengeScene: Scene) => {
+    const prompt = challengeScene.challenge?.prompt?.trim();
+    if (!prompt) {
+      startListening("challenge");
+      return;
+    }
+    setPhase("narrating");
+    playAudioOrSpeech(prompt, challengeScene.challenge_audio_url ?? null, () =>
+      startListening("challenge"),
+    );
   };
 
   const narrateScene = (nextScene: Scene) => {
@@ -1649,7 +1693,7 @@ function StoryScene({
     playNarration(nextScene, () => {
       if (nextScene.index === nextScene.total) setPhase("ready");
       else if (nextScene.choices) askDecision(nextScene);
-      else startListening("challenge");
+      else askChallenge(nextScene);
     });
   };
 
@@ -1846,6 +1890,7 @@ function StoryScene({
             height: `${scene.avatar_position.scale * 100}%`,
           }}
         >
+          <WatercolorFilter />
           <span className="avatar-feet-shadow" aria-hidden="true" />
           <div className="scene-avatar-person">
             <Avatar child={child} />

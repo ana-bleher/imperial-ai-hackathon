@@ -3414,3 +3414,17 @@
     scroll-behavior: auto !important;
   }
 }
+
+/* Watercolour look for the avatar on story scenes (matches Kiko's backgrounds) */
+.scene-avatar-person .avatar svg,
+.scene-avatar-friend svg {
+  filter: url(#watercolor) saturate(0.78) brightness(1.06) contrast(0.92);
+}
+.scene-avatar-person,
+.scene-avatar-friend {
+  opacity: 0.96;
+}
+.scene-avatar .avatar-feet-shadow {
+  background: rgba(96, 110, 60, 0.22); /* soft grass-green shadow, not navy */
+  filter: blur(3px);
+}
