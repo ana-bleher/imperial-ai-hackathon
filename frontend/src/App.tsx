@@ -327,6 +327,30 @@ function addSummaryToLatest(childId: number, summary: NonNullable<ProgressRespon
   saveHistory(childId, records);
 }
 
+// ---------- Learning across stories: tricky words come back, parents can add focus words
+const focusKey = (childId: number) => `speakaboo-focus-${childId}`;
+function loadFocusWords(childId: number): string[] {
+  try {
+    return JSON.parse(localStorage.getItem(focusKey(childId)) ?? "[]") as string[];
+  } catch {
+    return [];
+  }
+}
+function saveFocusWords(childId: number, list: string[]) {
+  try {
+    localStorage.setItem(focusKey(childId), JSON.stringify(list.slice(0, 5)));
+  } catch {
+    /* storage unavailable */
+  }
+}
+/** Up to 5 words for the tutor to weave into the next story: parent's picks first, then recent tricky words. */
+function practiceWords(childId: number): string[] {
+  const recentTricky = loadHistory(childId)
+    .slice(-3)
+    .flatMap((record) => record.help);
+  return [...new Set([...loadFocusWords(childId), ...recentTricky].map((w) => w.toLowerCase().trim()).filter(Boolean))].slice(0, 5);
+}
+
 // Where each child stopped reading, so the bookshelf can offer "Continue".
 const resumeKey = (childId: number) => `speakaboo-resume-${childId}`;
 function savedPage(childId: number): string | null {
@@ -2000,6 +2024,7 @@ function StoryScene({
             ...(imagePng ? { image_png: imagePng } : {}),
           },
           ...(resumeSceneId ? { resume_scene_id: resumeSceneId } : {}),
+          practice_words: practiceWords(child.id),
         });
       })();
     }
@@ -2816,6 +2841,59 @@ const parentActionLabels: Record<string, string> = {
   choice_made: "checked",
 };
 
+function FocusWordsCard({ childId, childName }: { childId: number; childName: string }) {
+  const [focus, setFocus] = useState<string[]>(() => loadFocusWords(childId));
+  const [draft, setDraft] = useState("");
+  useEffect(() => setFocus(loadFocusWords(childId)), [childId]);
+  const add = () => {
+    const word = draft.trim().toLowerCase();
+    if (!word || focus.includes(word) || focus.length >= 5) return;
+    const next = [...focus, word];
+    setFocus(next);
+    saveFocusWords(childId, next);
+    setDraft("");
+  };
+  const remove = (word: string) => {
+    const next = focus.filter((item) => item !== word);
+    setFocus(next);
+    saveFocusWords(childId, next);
+  };
+  const comingBack = practiceWords(childId).filter((word) => !focus.includes(word));
+  return (
+    <section className="focus-words summary-card">
+      <span className="summary-label">Next story: words to practise</span>
+      <p className="focus-help">
+        Pip’s guide will weave these into {childName}’s next story. Tricky words from recent stories come back
+        automatically.
+      </p>
+      <div className="summary-chips">
+        {focus.map((word) => (
+          <button key={word} className="summary-chip focus-chip" onClick={() => remove(word)} aria-label={`Remove ${word}`}>
+            {word} ✕
+          </button>
+        ))}
+        {comingBack.map((word) => (
+          <span key={word} className="summary-chip flag" title="Found tricky last time">
+            ↺ {word}
+          </span>
+        ))}
+      </div>
+      <div className="focus-add">
+        <input
+          value={draft}
+          maxLength={20}
+          placeholder="Add a word, e.g. butterfly"
+          onChange={(event) => setDraft(event.target.value)}
+          onKeyDown={(event) => event.key === "Enter" && add()}
+        />
+        <button className="primary-button compact" onClick={add} disabled={!draft.trim() || focus.length >= 5}>
+          Add
+        </button>
+      </div>
+    </section>
+  );
+}
+
 function Dashboard({
   childId,
   kids = [],
@@ -3029,6 +3107,7 @@ function Dashboard({
             </article>
           </section>
         )}
+        <FocusWordsCard childId={childId} childName={kid?.name ?? progress.child_name} />
         {overTime}
         {!progress.summary && !liveData && history.length > 0 ? null : !progress.summary && (
         <>

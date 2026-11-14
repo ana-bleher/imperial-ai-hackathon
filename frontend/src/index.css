@@ -4397,3 +4397,19 @@ html.night .story-screen .scene-art { background-color: #f4e7cc; }
 
 /* In the boat: the pet sits up beside the child so it peeks over the side too */
 .scene-avatar.partly-hidden .scene-avatar-friend { bottom: 40%; }
+
+/* Parent focus words */
+.focus-words { margin: 0 0 24px; }
+.focus-help { margin: 0; font-size: 14px; color: var(--ink-muted); }
+.focus-chip { border: 0; cursor: pointer; }
+.focus-add { display: flex; gap: 8px; margin-top: 4px; }
+.focus-add input {
+  flex: 1;
+  min-width: 0;
+  padding: 10px 14px;
+  border-radius: 14px;
+  border: 1.5px solid rgba(27, 35, 64, 0.15);
+  background: #fffdf8;
+  font: inherit;
+}
+html.night .focus-add input { background: #161d38; color: #f6ead2; border-color: rgba(246, 234, 210, 0.2); }

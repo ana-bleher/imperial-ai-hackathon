@@ -123,7 +123,7 @@
     },
     {
       "id": "s5a",
-      "narration": "On the other side, Pip flew to the biggest blue flower and curled up inside. 'Thank you for bringing me home,' Pip whispered. The bridge bells chimed once more, and the first stars came out, one, two, three. It was time for {CHILD_NAME} and {PET} to go home too. Soon {CHILD_NAME} was cosy in bed, with Pip glowing softly by the window. Goodnight.",
+      "narration": "On the other side, the blue flowers glowed: Pip was home! 'Thank you for bringing me home,' Pip whispered. The bridge bells chimed once more, and the first stars came out, one, two, three. It was time for {CHILD_NAME} and {PET} to go home too. Soon {CHILD_NAME} was cosy in bed. On the bedside table, a little blue flower glowed softly, because Pip had come to say goodnight. Goodnight.",
       "image_prompt": "Soft watercolor children's picture-book background, wide landscape. Cosy warm bedroom at night, soft cream blanket on a small bed, stars through window, tiny decorative bell hanging by the window as a reminder of the bridge, faint blue flower on bedside table, soft lamplight. Open visual space for overlaid avatar. No people, no animals, no insects, no text.",
       "avatar_position": {
         "x": 0.64,
@@ -140,7 +140,7 @@
     },
     {
       "id": "s5b",
-      "narration": "On the far bank, Pip flew to the biggest blue flower and curled up inside. 'Thank you for bringing me home,' Pip whispered. The river's gentle ripples sounded like a lullaby, and the first stars came out, one, two, three. It was time for {CHILD_NAME} and {PET} to go home too. Soon {CHILD_NAME} was cosy in bed, with Pip glowing softly nearby. Goodnight.",
+      "narration": "On the far bank, the blue flowers glowed: Pip was home! 'Thank you for bringing me home,' Pip whispered. The river's gentle ripples sounded like a lullaby, and the first stars came out, one, two, three. It was time for {CHILD_NAME} and {PET} to go home too. Soon {CHILD_NAME} was cosy in bed, and the moonlight made soft ripples on the wall, just like the river. Goodnight.",
       "image_prompt": "Soft watercolor children's picture-book background, wide landscape. Cosy warm bedroom at night with cream blanket on a little bed, silver moonlight through window, gentle circular ripple pattern reflected on wall and a small blue flower on bedside table, calm blue and cream palette. Clear visual space for overlaid avatar. No people, no animals, no insects, no text.",
       "avatar_position": {
         "x": 0.42,

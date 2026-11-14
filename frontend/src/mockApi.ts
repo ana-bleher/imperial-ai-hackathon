@@ -13,6 +13,8 @@ export type ApiChild = {
     image_png?: string; // base64 PNG of the drawn avatar, repainted on fal by the backend
   };
   resume_scene_id?: string | null; // "Continue" starts from the page the child stopped at
+  // Words to bring back in this story: ones the child found tricky before + the parent's focus words.
+  practice_words?: string[];
 };
 
 export type Scene = {
