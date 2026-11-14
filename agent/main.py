@@ -10,6 +10,7 @@ import binascii
 import hashlib
 import json
 import logging
+import os
 import re
 import time
 import uuid
@@ -269,16 +270,25 @@ def decode_avatar_png(value) -> bytes | None:
     return png if png.startswith(b"\x89PNG\r\n\x1a\n") else None
 
 
-def cached_avatar(png: bytes) -> str | None:
-    """The /static path of an already painted avatar for this drawing, without calling fal."""
-    path = paint_avatar.AVATAR_DIR / f"{paint_avatar.cache_key(png)}.png"
+def painting_enabled() -> bool:
+    """PAINT_AVATAR=0 turns avatar painting off; avatar_url then stays null."""
+    return os.getenv("PAINT_AVATAR", "1").strip() != "0"
+
+
+def avatar_traits(avatar: dict) -> dict:
+    return {k: avatar[k] for k in paint_avatar.TRAIT_KEYS if k in avatar}
+
+
+def cached_avatar(png: bytes, traits: dict) -> str | None:
+    """The /static path of an already painted avatar for this drawing and traits, without calling fal."""
+    path = paint_avatar.AVATAR_DIR / f"{paint_avatar.cache_key(png, traits)}.png"
     return f"/static/avatars/{path.name}" if path.exists() else None
 
 
-async def paint_avatar_for(sess: dict, png: bytes) -> None:
+async def paint_avatar_for(sess: dict, png: bytes, traits: dict) -> None:
     """Paint in a worker thread; the PNG lives only in this task and is dropped when it ends.
     paint() returns None when FAL_KEY is missing or painting fails, so avatar_url stays null."""
-    sess["avatar_path"] = await asyncio.to_thread(paint_avatar.paint, png)
+    sess["avatar_path"] = await asyncio.to_thread(paint_avatar.paint, png, traits)
 
 
 def enter_scene(sess: dict, scene_id: str, challenge: dict | None = None) -> None:
@@ -349,10 +359,11 @@ async def session_start(request: Request):
         "date": date.today().isoformat(), "stars": 0, "scene_attempts": 0,
         "log": [], "avatar_path": None, **fallback.new_session_state(),
     }
-    if avatar_png:
-        sess["avatar_path"] = cached_avatar(avatar_png)
+    if avatar_png and painting_enabled():
+        traits = avatar_traits(avatar)  # the drawing goes to paint(), never into the session
+        sess["avatar_path"] = cached_avatar(avatar_png, traits)
         if sess["avatar_path"] is None:
-            in_background(paint_avatar_for(sess, avatar_png))  # never blocks the response
+            in_background(paint_avatar_for(sess, avatar_png, traits))  # never blocks the response
     in_background(tutor.warm_up())  # so the first /turn does not pay for a cold Anthropic connection
     resume = body.get("resume_scene_id")
     first = resume if isinstance(resume, str) and resume in SCENES else START  # invalid: ignored
