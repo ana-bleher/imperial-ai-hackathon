@@ -3522,3 +3522,103 @@
 @media (prefers-reduced-motion: reduce) {
   .bed-avatar, .bed-zzz { animation: none; }
 }
+
+/* ---------- Show the whole picture (no cropping), so avatar positions match ---------- */
+.story-screen .scene-art {
+  height: auto;
+  min-height: 0;
+  max-height: none;
+  aspect-ratio: 2752 / 1536;
+  width: 100%;
+}
+@media (min-width: 700px) {
+  .story-screen {
+    background: radial-gradient(circle at 30% 40%, #2f3a66 0%, #1b223d 75%);
+  }
+  .story-screen .scene-art {
+    align-self: center;
+    height: auto;
+    min-height: 0;
+    border-radius: 0 18px 18px 0;
+  }
+}
+
+/* ---------- Page turn: each new picture swings in like a book page ---------- */
+.story-screen .scene-art { perspective: 1600px; }
+.scene-background.loaded {
+  animation: page-turn-in 0.9s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  transform-origin: left center;
+}
+@keyframes page-turn-in {
+  0% { transform: rotateY(-75deg); opacity: 0; filter: brightness(0.7); }
+  60% { opacity: 1; }
+  100% { transform: rotateY(0); opacity: 1; filter: brightness(1); }
+}
+.page-turn-text {
+  animation: page-text-in 0.7s ease 0.15s both;
+}
+@keyframes page-text-in {
+  from { opacity: 0; transform: translateX(18px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* ---------- Title page ---------- */
+.title-card {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-content: center;
+  text-align: center;
+  gap: 6px;
+  padding: 24px;
+  color: #fff8ec;
+  background: radial-gradient(circle at 50% 40%, rgba(43, 53, 96, 0.82), rgba(20, 26, 48, 0.94));
+  animation: title-in 0.8s ease both, title-out 0.8s ease 3s forwards;
+}
+.title-card small {
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  font-weight: 800;
+  font-size: 12px;
+  color: #f2c14e;
+}
+.title-card h1 {
+  margin: 0;
+  font-family: "Nunito", sans-serif;
+  font-size: clamp(28px, 4vw, 52px);
+  line-height: 1.1;
+}
+.title-card p { margin: 6px 0 0; font-size: clamp(16px, 1.8vw, 22px); opacity: 0.9; }
+.title-card-moon { font-size: 44px; animation: bed-zzz 3s ease-in-out infinite; }
+@keyframes title-in { from { opacity: 0; transform: scale(1.04); } to { opacity: 1; transform: none; } }
+@keyframes title-out { to { opacity: 0; } }
+
+/* Choice cards: picture instead of repeating the word */
+.choice-icon-emoji { font-size: 44px; line-height: 1; display: block; }
+
+@media (prefers-reduced-motion: reduce) {
+  .scene-background.loaded, .page-turn-text, .title-card { animation: none; }
+}
+
+/* Dashboard: flagged problem areas */
+.needs-practice {
+  margin-top: 24px;
+  padding: 22px 24px;
+  border-radius: 24px;
+  background: #fff4e3;
+  border: 1.5px solid rgba(242, 193, 78, 0.55);
+}
+.needs-practice-chips { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
+.needs-practice-chip {
+  display: inline-flex;
+  flex-direction: column;
+  padding: 10px 16px;
+  border-radius: 16px;
+  background: #fffaf2;
+  border: 1px solid rgba(214, 150, 40, 0.35);
+  font-weight: 800;
+  color: #8a5a12;
+  font-size: 16px;
+}
+.needs-practice-chip small { font-weight: 600; font-size: 12px; color: #9a7a4a; }

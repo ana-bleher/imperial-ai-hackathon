@@ -1186,7 +1186,12 @@ function ChoiceIcon({ icon }: { icon: string }) {
   if (["bridge", "boat", "lantern", "owl"].includes(icon)) {
     return <ChoiceIllustration type={icon as "bridge" | "boat" | "lantern" | "owl"} />;
   }
-  return <span className="choice-icon-text">{icon}</span>;
+  const emoji: Record<string, string> = {
+    sun: "☀️", moon: "🌙", star: "⭐", stars: "✨", flower: "🌸", fish: "🐟", bell: "🔔",
+    bells: "🔔", river: "🌊", tree: "🌳", bed: "🛏️", firefly: "✨", ribbon: "🎀",
+  };
+  const key = icon.toLowerCase().trim();
+  return <span className="choice-icon-emoji">{emoji[key] ?? "✨"}</span>;
 }
 
 function SoundWave({ active, thinking = false }: { active: boolean; thinking?: boolean }) {
@@ -1243,6 +1248,7 @@ function StoryScene({
   // Track WHICH picture loaded/failed (by URL) instead of a single status flag, so a cached
   // picture that loads instantly can never be marked "loading" again afterwards.
   const [loadedImage, setLoadedImage] = useState<string | null>(null);
+  const [titleCard, setTitleCard] = useState(false);
   const [failedImage, setFailedImage] = useState<string | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -1584,7 +1590,7 @@ function StoryScene({
       webkitSpeechRecognition?: new () => BrowserSpeechRecognition;
     };
     const Recognition = speechWindow.SpeechRecognition ?? speechWindow.webkitSpeechRecognition;
-    if (Recognition) {
+    if (Recognition && !SEND_AUDIO) {
       const recognition = new Recognition();
       recognition.continuous = true;
       recognition.interimResults = true;
@@ -1741,7 +1747,12 @@ function StoryScene({
     await microphone;
     sessionRef.current = response.session_id;
     setSessionId(response.session_id);
-    narrateScene(response.scene);
+    setCurrentScene(response.scene);
+    setTitleCard(true);
+    window.setTimeout(() => {
+      setTitleCard(false);
+      narrateScene(response.scene);
+    }, 3800);
   };
 
   const recordResult = async (result: "success" | "miss") => {
@@ -1939,6 +1950,14 @@ function StoryScene({
         </div>
         )}
         <span className="scene-label">A Speakaboo story</span>
+        {titleCard && (
+          <div className="title-card" aria-live="polite">
+            <span className="title-card-moon" aria-hidden="true">🌙</span>
+            <small>Tonight's bedtime story</small>
+            <h1>Pip's Gentle Journey Home</h1>
+            <p>Are you ready for your story, {child.name}?</p>
+          </div>
+        )}
       </section>
       <section className="story-controls">
         <div className="story-progress" aria-label={`Scene ${scene.index} of ${scene.total}`}>
@@ -1951,7 +1970,7 @@ function StoryScene({
             ))}
           </div>
         </div>
-        <div className="narration">
+        <div className="narration page-turn-text" key={`text-${scene.id}`}>
           <button
             aria-label={playing ? "Pause narration" : "Play narration"}
             onClick={toggleNarration}
@@ -2058,7 +2077,7 @@ function StoryScene({
             </span>
           </div>
         )}
-        {!isFinalScene && retrying && (
+        {!isFinalScene && retrying && !atDecision && (
           <div className="retry-hints">
             <span>Try again, you've got this!</span>
             <div>
@@ -2367,6 +2386,40 @@ function Dashboard({
             <span className="try-at-home-chip">Try at home</span>
           </article>
         </div>
+
+        {(() => {
+          // Flag problem areas: words the guide had to help with (hint, retry, modelled answer).
+          const helpActions = /retry|hint|model|easier|together/i;
+          const tricky = new Map<string, number>();
+          (progress.agent_log ?? [])
+            .filter((entry) => helpActions.test(entry.action))
+            .forEach((entry) => {
+              const quoted = entry.reason.match(/['‘’"“”]([a-zA-Z\- ]{2,24})['‘’"“”]/g) ?? [];
+              quoted.forEach((q) => {
+                const word = q.slice(1, -1).trim().toLowerCase();
+                tricky.set(word, (tricky.get(word) ?? 0) + 1);
+              });
+            });
+          if (!tricky.size) return null;
+          return (
+            <section className="needs-practice">
+              <div className="dashboard-section-heading">
+                <span className="eyebrow">Flagged by the guide</span>
+                <h2>Words to practise together</h2>
+              </div>
+              <div className="needs-practice-chips">
+                {[...tricky.entries()]
+                  .sort((a, b) => b[1] - a[1])
+                  .map(([word, count]) => (
+                    <span key={word} className="needs-practice-chip">
+                      ⚑ {word}
+                      <small>{count > 1 ? `needed help ${count}×` : "needed a hint"}</small>
+                    </span>
+                  ))}
+              </div>
+            </section>
+          );
+        })()}
 
         {progress.agent_log?.length ? (
           <section className="speakaboo-helped">
