@@ -5,7 +5,7 @@
   "scenes": [
     {
       "id": "s1",
-      "narration": "Pip's Gentle Journey Home. Hello {CHILD_NAME}! Are you ready for tonight's bedtime story? Snuggle in, here we go. One golden afternoon, {CHILD_NAME} and {PET} met Pip, a tiny firefly holding a lantern. 'I can't find my flower bed across the river,' Pip said. 'Will you help me get home before the stars come out?' Together, they followed a path through the meadow.",
+      "narration": "One golden afternoon, {CHILD_NAME} and {PET} met Pip, a tiny firefly holding a lantern. 'I can't find my flower bed across the river,' Pip said. 'Will you help me get home before the stars come out?' Together, they followed a path through the meadow.",
       "image_prompt": "Soft watercolor children's picture-book background, wide landscape. Peaceful green meadow in warm late-afternoon light, winding grassy path, yellow buttercups, a distant river and a small wooden sign ahead. Open clear foreground for a separately overlaid avatar. No people, no animals, no insects, no text.",
       "avatar_position": {
         "x": 0.26,

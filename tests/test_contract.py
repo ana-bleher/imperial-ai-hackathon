@@ -171,3 +171,29 @@ def test_voice_timeout_argument():
         return "done"
     assert asyncio.run(main.voice(slow, timeout=0.01)) is None
     assert asyncio.run(main.voice(slow, timeout=1)) == "done"
+
+
+def test_intro_on_session_start(monkeypatch):
+    from agent.main import STORY
+    from tools import voice
+
+    body = start()  # voice is offline: the intro text is still there, its audio is null
+    expected = (f"{STORY['title']}. Hello Mia! Are you ready for tonight's bedtime story? "
+                "Snuggle in, and when you're ready, open the book.")
+    assert body["intro"] == {"text": expected, "audio_url": None}
+
+    spoken = []
+
+    def fake_speak(text):
+        spoken.append(text)
+        return f"/static/audio/{len(spoken)}.mp3"
+    monkeypatch.setattr(voice, "speak", fake_speak)
+    body = start()
+    assert expected in spoken
+    assert body["intro"]["audio_url"].startswith("http")
+    assert body["intro"]["audio_url"].endswith(".mp3")
+
+
+def test_s1_narration_starts_with_the_story():
+    from agent.main import SCENES
+    assert SCENES["s1"]["narration"].startswith("One golden afternoon, {CHILD_NAME} and {PET} met Pip")

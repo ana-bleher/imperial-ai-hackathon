@@ -3,6 +3,10 @@
   "child_id": "mia-1",
   "avatar_url": null,
   "stars": 0,
+  "intro": {
+    "text": "Pip's Gentle Journey Home. Hello Mia! Are you ready for tonight's bedtime story? Snuggle in, and when you're ready, open the book.",
+    "audio_url": null
+  },
   "scene": {
     "id": "s1",
     "index": 1,
