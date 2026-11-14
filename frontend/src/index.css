@@ -4297,3 +4297,18 @@ html.night .bookcase { border-color: #3e2716; }
 html.night :is(.cream-page, .dashboard-page) :is(.icon-text-button, .topbar, .library h1, .dashboard-heading h1) { color: #f6ead2; }
 html.night :is(.cream-page, .dashboard-page) .icon-text-button svg { color: #f6ead2; }
 html.night .title-card { color: #fff6e5; }
+
+/* Locked books show their painted cover, softly dimmed, with a lock badge */
+.bookcase .book.locked .book-cover-art img { filter: grayscale(0.35) brightness(0.75); }
+.bookcase .book-lock {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  font-size: 22px;
+  background: rgba(20, 26, 48, 0.55);
+  border-radius: 50%;
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+}

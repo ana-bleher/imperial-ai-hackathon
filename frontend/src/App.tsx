@@ -2655,9 +2655,9 @@ function StoryScene({
 
 const SHELF = [
   { title: "Pip's Gentle Journey Home", cover: "/static/scenes/s1.jpg", locked: false },
-  { title: "The Sleepy Lighthouse", cover: null, locked: true },
-  { title: "Moon Garden Picnic", cover: null, locked: true },
-  { title: "Owl's Night Choir", cover: null, locked: true },
+  { title: "The Sleepy Lighthouse", cover: "/static/backgrounds/11-lighthouse-cliff-watercolour-bg.jpg", locked: true },
+  { title: "Moon Garden Picnic", cover: "/static/backgrounds/02-wildflower-garden-watercolour-bg.jpg", locked: true },
+  { title: "Owl's Night Choir", cover: "/static/backgrounds/04-moonlit-woodland-clearing-watercolour-bg.jpg", locked: true },
 ];
 
 function Library({
@@ -2696,9 +2696,8 @@ function Library({
                 <article key={book.title} className={`book ${book.locked ? "locked" : ""}`}>
                   <div className="book-3d">
                     <div className="book-cover-art">
-                      {book.cover ? (
-                        <img src={`${API_URL}${book.cover}`} alt="" />
-                      ) : (
+                      {book.cover && <img src={`${API_URL}${book.cover}`} alt="" />}
+                      {book.locked && (
                         <span className="book-lock" aria-hidden="true">🔒</span>
                       )}
                       <span className="book-title-on-cover">{book.title}</span>
