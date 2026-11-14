@@ -1,10 +1,13 @@
-"""FastAPI app with the contract from CLAUDE.md. Turns use the fallback rule (no AI yet).
+"""FastAPI app with the contract from CLAUDE.md. Turns go through the tutor agent (agent/tutor.py),
+which falls back to the fallback rule (agent/fallback.py) when slow or invalid.
 The story (scenes, order, branches, decisions, endings) comes from data/story.json.
 
 Run locally:  uvicorn agent.main:app --reload
 """
 import json
+import logging
 import re
+import time
 import uuid
 from datetime import date
 from pathlib import Path
@@ -13,7 +16,14 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from agent import fallback
+from dotenv import load_dotenv
+
+load_dotenv()  # ANTHROPIC_API_KEY for the tutor agent (never committed)
+
+from agent import fallback, tutor  # noqa: E402
+
+logging.basicConfig(level=logging.INFO)
+log = logging.getLogger("turn")
 
 ROOT = Path(__file__).resolve().parent.parent
 STATIC = ROOT / "static"
@@ -89,6 +99,8 @@ def path_depth(scene_id: str) -> int:
 
 
 TOTAL = max(path_depth(sid) for sid in SCENES)
+# Every word in the story file: the agent may say these even if the child said them too.
+STORY_VOCAB = set(fallback.words(json.dumps(STORY)))
 
 app = FastAPI(title="Story-time mock backend")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
@@ -150,9 +162,22 @@ def scene_payload(sess: dict, request: Request) -> dict:
     }
 
 
-def enter_scene(sess: dict, scene_id: str) -> None:
+def enter_scene(sess: dict, scene_id: str, challenge: dict | None = None) -> None:
+    """Enter a scene. `challenge` is the agent's first challenge for it (checked in agent/tutor.py);
+    without one, the fallback rule picks it."""
     scene = SCENES[scene_id]
     fallback.enter_scene(sess, scene, narration_for(sess, scene), exclude=name_words(sess))
+    if challenge and fallback.decision_type(scene) is None:
+        sess["challenge"] = challenge
+        sess["key_word"] = tutor.key_word_of(challenge["target_words"])
+
+
+def next_speaking_narration(sess: dict, scene: dict) -> str | None:
+    """Narration of the next scene if the agent will set its challenge (linear, no decision)."""
+    nxt = scene.get("next")
+    if scene.get("branches") or not nxt or fallback.decision_type(SCENES[nxt]) is not None:
+        return None
+    return narration_for(sess, SCENES[nxt])
 
 
 # ---------- endpoints ----------
@@ -196,6 +221,7 @@ def mock_answer(sess: dict) -> str:
 
 @app.post("/turn")
 async def turn(request: Request):
+    started = time.perf_counter()
     if request.headers.get("content-type", "").startswith("application/json"):
         body = await request.json()
         session_id, transcript = body.get("session_id"), body.get("transcript", "")
@@ -212,27 +238,38 @@ async def turn(request: Request):
 
     scene = SCENES[sess["scene_id"]]
     challenge = sess["challenge"]
-    d = fallback.turn(sess, scene, narration_for(sess, scene), transcript)
+    d, meta = await tutor.decide(
+        sess, scene, narration_for(sess, scene), transcript,
+        next_narration=next_speaking_narration(sess, scene),
+        name_words=name_words(sess),
+        vocab=STORY_VOCAB | name_words(sess) | set(fallback.words(json.dumps(sess["child"]))),
+    )
 
-    # Code-enforced limits (also guards the agent's choices later).
+    # Code-enforced limits (last line of defence; tutor.py has already checked the agent).
     sess["level"] = max(fallback.MIN_LEVEL, min(fallback.MAX_LEVEL, sess["level"]))
     allowed = next_ids(scene)
     if not d["retry"] and d["next_id"] not in allowed:
         d["next_id"] = allowed[0]
 
-    sess["log"].append({
+    entry = {
         "result": d["log_result"], "action": d["action"],
         "date": date.today().isoformat(), "scene_id": scene["id"], "transcript": transcript,
         "targets": [d["chosen"]] if d.get("chosen") else d["targets"] or challenge["target_words"],
         "level": challenge["level"], "new_level": sess["level"], "tries": sess["tries"],
-        "parent_note": d["parent_note"], "reason": d["reason"], "source": "fallback",
-    })
+        "parent_note": d["parent_note"], "reason": d["reason"], **meta,
+    }
 
     story_complete = not d["retry"] and d["next_id"] is None
     if d["retry"]:
         sess["challenge"] = d["challenge"]
     elif d["next_id"]:
-        enter_scene(sess, d["next_id"])
+        enter_scene(sess, d["next_id"], d.get("next_challenge"))
+
+    entry["turn_ms"] = round((time.perf_counter() - started) * 1000)
+    sess["log"].append(entry)
+    log.info("turn %s scene=%s result=%s action=%s source=%s agent_ms=%s turn_ms=%s%s",
+             session_id, scene["id"], d["result"], d["action"], meta["source"], meta["agent_ms"],
+             entry["turn_ms"], f" fallback_reason={meta['fallback_reason']}" if meta["fallback_reason"] else "")
 
     return {
         "transcript": transcript, "result": d["result"], "feedback": d["feedback"],
