@@ -3451,3 +3451,74 @@
 .narration p {
   min-width: 0;
 }
+
+/* ---------- Goodnight: avatar tucked into bed ---------- */
+.bed-avatar {
+  position: absolute;
+  z-index: 5;
+  aspect-ratio: 190 / 160;
+  transform: translate(-50%, -50%);
+  animation: bed-breathe 4s ease-in-out infinite;
+}
+.bed-avatar-body {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 84.2%;
+  height: 118.75%;
+  transform: translate(-50%, -50%) rotate(90deg); /* head towards the pillow */
+}
+.bed-avatar-body .avatar,
+.bed-avatar-body .avatar svg {
+  width: 100%;
+  height: 100%;
+  filter: url(#watercolor) saturate(0.75) brightness(1.04);
+}
+.bed-blanket {
+  position: absolute;
+  left: -6%;
+  right: 30%; /* leaves the head uncovered */
+  top: 18%;
+  bottom: -4%;
+  border-radius: 18px 46% 22px 22px;
+  background: linear-gradient(180deg, #f6eee2 0%, #eadfce 100%);
+  box-shadow:
+    inset 0 6px 10px rgba(255, 255, 255, 0.6),
+    0 6px 12px rgba(70, 60, 90, 0.18);
+  filter: url(#watercolor);
+}
+.bed-zzz {
+  position: absolute;
+  right: -8%;
+  top: -28%;
+  font-family: "Nunito", sans-serif;
+  font-weight: 800;
+  font-size: clamp(12px, 1.6vw, 20px);
+  letter-spacing: 3px;
+  color: rgba(255, 255, 255, 0.9);
+  text-shadow: 0 1px 6px rgba(40, 50, 90, 0.5);
+  animation: bed-zzz 3s ease-in-out infinite;
+}
+.bed-pet {
+  position: absolute;
+  z-index: 5;
+  aspect-ratio: 1;
+  transform: translate(-50%, -100%);
+  filter: url(#watercolor) saturate(0.8) drop-shadow(0 5px 4px rgba(40, 40, 70, 0.22));
+}
+.bed-pet svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+@keyframes bed-breathe {
+  0%, 100% { transform: translate(-50%, -50%) scale(1); }
+  50% { transform: translate(-50%, -50%) scale(1.015); }
+}
+@keyframes bed-zzz {
+  0%, 100% { opacity: 0.3; transform: translateY(4px); }
+  50% { opacity: 1; transform: translateY(-4px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bed-avatar, .bed-zzz { animation: none; }
+}

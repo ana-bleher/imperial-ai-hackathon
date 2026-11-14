@@ -196,6 +196,13 @@ function WatercolorFilter() {
   );
 }
 
+// Where the bed is in Kiko's two goodnight pictures (fractions of the picture).
+// The child lies tucked in with their head on the pillow; their animal friend sleeps on the rug.
+const BED_SPOTS: Record<string, { x: number; y: number; width: number; pet: { x: number; y: number; height: number } }> = {
+  s5a: { x: 0.31, y: 0.52, width: 0.17, pet: { x: 0.5, y: 0.86, height: 0.14 } },
+  s5b: { x: 0.69, y: 0.6, width: 0.17, pet: { x: 0.47, y: 0.88, height: 0.14 } },
+};
+
 function Avatar({ child, size = "large" }: { child: Child; size?: "small" | "medium" | "large" }) {
   const [outfitMain, outfitSecond] = outfitColors[child.outfit] ?? ["#5FB3A8", "#FFF6E5"];
   const hair = child.hairColor;
@@ -1233,9 +1240,10 @@ function StoryScene({
   const [retrying, setRetrying] = useState(false);
   const [openingMessage, setOpeningMessage] = useState("Opening the storybook…");
   const [activeSentence, setActiveSentence] = useState<number | null>(null);
-  const [sceneImageStatus, setSceneImageStatus] = useState<"loading" | "loaded" | "error">(
-    "loading",
-  );
+  // Track WHICH picture loaded/failed (by URL) instead of a single status flag, so a cached
+  // picture that loads instantly can never be marked "loading" again afterwards.
+  const [loadedImage, setLoadedImage] = useState<string | null>(null);
+  const [failedImage, setFailedImage] = useState<string | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
@@ -1248,15 +1256,7 @@ function StoryScene({
   const sceneRef = useRef<Scene | null>(null);
   const speechRunRef = useRef(0);
 
-  useEffect(() => {
-    setSceneImageStatus("loading");
-  }, [scene?.image_url]);
-
   const setCurrentScene = (nextScene: Scene) => {
-    // Only hide the background when the picture actually changes. Re-setting the same
-    // scene (retries, decisions) keeps the same <img>, whose onLoad never fires again,
-    // so resetting to "loading" made the background vanish.
-    if (sceneRef.current?.image_url !== nextScene.image_url) setSceneImageStatus("loading");
     sceneRef.current = nextScene;
     setScene(nextScene);
   };
@@ -1872,19 +1872,54 @@ function StoryScene({
   return (
     <main className="story-screen page-enter">
       <section className="scene-art" aria-label={`Story scene ${scene.index}`}>
-        {scene.image_url && sceneImageStatus !== "error" && (
+        {scene.image_url && failedImage !== scene.image_url && (
           <img
             key={scene.image_url}
-            className={`scene-background ${sceneImageStatus === "loaded" ? "loaded" : ""}`}
+            className={`scene-background ${loadedImage === scene.image_url ? "loaded" : ""}`}
             src={scene.image_url}
             alt=""
-            onLoad={() => setSceneImageStatus("loaded")}
-            onError={() => setSceneImageStatus("error")}
+            ref={(img) => {
+              // Cached pictures can finish before React attaches onLoad.
+              if (img?.complete && img.naturalWidth > 0 && loadedImage !== scene.image_url)
+                setLoadedImage(scene.image_url);
+            }}
+            onLoad={() => setLoadedImage(scene.image_url)}
+            onError={() => setFailedImage(scene.image_url)}
           />
         )}
         <button className="story-home" onClick={onExit} aria-label="Leave story">
           <Icon name="home" size={21} />
         </button>
+        {BED_SPOTS[scene.id] ? (
+          <>
+            <WatercolorFilter />
+            <div
+              className="bed-avatar"
+              style={{
+                left: `${BED_SPOTS[scene.id].x * 100}%`,
+                top: `${BED_SPOTS[scene.id].y * 100}%`,
+                width: `${BED_SPOTS[scene.id].width * 100}%`,
+              }}
+            >
+              <div className="bed-avatar-body">
+                <Avatar child={child} />
+              </div>
+              <span className="bed-blanket" aria-hidden="true" />
+              <span className="bed-zzz" aria-hidden="true">z z z</span>
+            </div>
+            <div
+              className="bed-pet"
+              aria-hidden="true"
+              style={{
+                left: `${BED_SPOTS[scene.id].pet.x * 100}%`,
+                top: `${BED_SPOTS[scene.id].pet.y * 100}%`,
+                height: `${BED_SPOTS[scene.id].pet.height * 100}%`,
+              }}
+            >
+              <AnimalIllustration animal={child.friend} />
+            </div>
+          </>
+        ) : (
         <div
           className="scene-avatar"
           style={{
@@ -1902,6 +1937,7 @@ function StoryScene({
             <AnimalIllustration animal={child.friend} />
           </div>
         </div>
+        )}
         <span className="scene-label">A Speakaboo story</span>
       </section>
       <section className="story-controls">
