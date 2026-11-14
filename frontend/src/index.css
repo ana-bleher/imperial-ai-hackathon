@@ -4413,3 +4413,59 @@ html.night .story-screen .scene-art { background-color: #f4e7cc; }
   font: inherit;
 }
 html.night .focus-add input { background: #161d38; color: #f6ead2; border-color: rgba(246, 234, 210, 0.2); }
+
+/* =================== Review polish =================== */
+/* No leftover navy tint over the paper page */
+.story-screen .scene-art:after { display: none; }
+/* Night: dim only the picture, not the child, Pip or the paper */
+html.night .story-screen .scene-art { filter: none; }
+html.night .story-screen .scene-background { filter: brightness(0.86) saturate(0.95); }
+/* Page buttons and mic: readable and big enough for small fingers */
+.page-nav .page-button,
+.manual-mic {
+  opacity: 0.8;
+  font-size: 15px;
+  padding: 10px 16px;
+  min-height: 44px;
+}
+/* Pip's speech bubble a little larger, closer to the story text */
+.guide-bubble p { font-size: 17px; }
+/* Dashboard: why the agent chose this question */
+.timeline-why { margin: 4px 0 0; font-size: 13px; color: var(--ink-muted); }
+.timeline-why b { color: #2f6b63; }
+html.night .timeline-why b { color: #f2c14e; }
+
+/* ---------- The end: the book closes, then we return to the start ---------- */
+.closing-book {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: grid;
+  place-items: center;
+  background: radial-gradient(circle at 50% 40%, rgba(43, 53, 96, 0.92), rgba(15, 20, 40, 0.98));
+  animation: closing-fade 0.8s ease both;
+  perspective: 1400px;
+}
+.closing-book-inner {
+  text-align: center;
+  color: #fff6e5;
+  padding: 42px 56px;
+  border-radius: 24px;
+  background: rgba(255, 246, 229, 0.06);
+  border: 1px solid rgba(242, 193, 78, 0.35);
+  transform-origin: left center;
+  animation: book-close 4.2s ease both;
+}
+.closing-book-inner h1 { font-family: "Nunito", sans-serif; font-size: clamp(40px, 6vw, 64px); margin: 6px 0; }
+.closing-book-inner p { font-size: 20px; margin: 0 0 12px; opacity: 0.9; }
+.closing-moon { font-size: 52px; display: block; animation: pip-float 3.2s ease-in-out infinite; }
+.closing-stars { color: #f2c14e; font-size: 20px; }
+@keyframes closing-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes book-close {
+  0% { transform: rotateY(0) scale(0.9); opacity: 0; }
+  15%, 75% { transform: rotateY(0) scale(1); opacity: 1; }
+  100% { transform: rotateY(-80deg) scale(0.95); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .closing-book, .closing-book-inner, .closing-moon { animation: none; }
+}

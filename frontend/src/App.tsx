@@ -245,6 +245,18 @@ async function avatarToPng(container: HTMLElement | null): Promise<string | null
   }
 }
 
+// How the agent's chosen question types read for parents on the dashboard timeline.
+const questionTypeLabels: Record<string, string> = {
+  repeat: "Say-it question",
+  say: "Say-it question",
+  choice: "Choice question",
+  count: "Counting question",
+  recall: "Remember-the-story question",
+  describe: "Describe-the-picture question",
+  open: "Open question",
+  yes_no: "Yes/no question",
+};
+
 // Watercolour versions of Pip and the pets (painted once on fal by Kiko) live in
 // frontend/public/characters/. Until a file exists, the drawn version is shown instead.
 function PaintedOr({ src, children }: { src: string; children: React.ReactNode }) {
@@ -410,21 +422,22 @@ function Pip({ sleeping = false }: { sleeping?: boolean }) {
 // Overrides story.json where the default spot was in the river or on the bed.
 // `hidden`: share of the child (from the feet up) hidden behind something in the picture, e.g. the boat's side.
 const STAND_SPOTS: Record<string, { x: number; y: number; scale: number; hidden?: number }> = {
-  s3: { x: 0.36, y: 0.93, scale: 0.3 }, // on the grass bank, not in the river
-  s4b: { x: 0.47, y: 0.7, scale: 0.24, hidden: 0.4 }, // sitting in the boat: legs hidden behind its side
-  s5a: { x: 0.64, y: 0.93, scale: 0.32 }, // on the rug in front of the bed
-  s5b: { x: 0.42, y: 0.94, scale: 0.32 }, // on the rug in front of the bed
+  s3: { x: 0.36, y: 0.88, scale: 0.3 }, // on the grass bank, not in the river
+  s4a: { x: 0.33, y: 0.72, scale: 0.32 }, // on the bridge deck, not covering the pink bow
+  s4b: { x: 0.47, y: 0.74, scale: 0.24, hidden: 0.4 }, // sitting in the boat: legs hidden behind its side
+  s5a: { x: 0.64, y: 0.88, scale: 0.32 }, // on the rug in front of the bed
+  s5b: { x: 0.42, y: 0.88, scale: 0.32 }, // on the rug in front of the bed
 };
 
 // Where the bed is in Kiko's two goodnight pictures (fractions of the picture).
-// The child lies tucked in with their head on the pillow; their animal friend sleeps on the rug.
+// Only Pip's sleeping spot is used now (the child stands on the rug, see STAND_SPOTS).
 const BED_SPOTS: Record<
   string,
   { x: number; y: number; width: number; pet: { x: number; y: number; height: number }; pip: { x: number; y: number } }
 > = {
   // Pip sleeps in the little blue flower on the bedside table.
-  s5a: { x: 0.31, y: 0.52, width: 0.17, pet: { x: 0.5, y: 0.86, height: 0.14 }, pip: { x: 0.545, y: 0.55 } },
-  s5b: { x: 0.69, y: 0.6, width: 0.17, pet: { x: 0.47, y: 0.88, height: 0.14 }, pip: { x: 0.955, y: 0.64 } },
+  s5a: { x: 0.31, y: 0.52, width: 0.17, pet: { x: 0.5, y: 0.86, height: 0.14 }, pip: { x: 0.555, y: 0.565 } },
+  s5b: { x: 0.69, y: 0.6, width: 0.17, pet: { x: 0.47, y: 0.88, height: 0.14 }, pip: { x: 0.82, y: 0.58 } },
 };
 
 function Avatar({ child, size = "large" }: { child: Child; size?: "small" | "medium" | "large" }) {
@@ -1466,9 +1479,12 @@ function StoryScene({
     starsRef.current = value;
     setStars(value);
   };
+  const [closingBook, setClosingBook] = useState(false);
   const onFinish = () => {
+    if (closingBook) return;
     savePage(child.id, null); // story finished: next time starts from the beginning
-    onStoryFinished(starsRef.current);
+    setClosingBook(true); // the book closes with "The end", then we go back to the start
+    window.setTimeout(() => onStoryFinished(starsRef.current), 4200);
   };
   type TurnPhase = "ready" | "loading" | "narrating" | "listening" | "thinking" | "feedback";
   const [started, setStarted] = useState(false);
@@ -1627,6 +1643,7 @@ function StoryScene({
       return;
     }
 
+    const myRun = speechRunRef.current; // if anything newer starts, this clip must stay silent
     const audio = new Audio(audioUrl);
     audio.playbackRate = 0.92; // a touch slower and calmer for bedtime (pitch is kept)
     LIVE_AUDIO.add(audio);
@@ -1654,6 +1671,12 @@ function StoryScene({
 
     const fallBack = (error: unknown) => {
       if (complete) return;
+      if (myRun !== speechRunRef.current || !LIVE_AUDIO.has(audio)) {
+        // stopped on purpose (page turned, home, new clip): do not speak the old text
+        complete = true;
+        cleanup();
+        return;
+      }
       complete = true;
       cleanup();
       audio.pause();
@@ -1759,71 +1782,50 @@ function StoryScene({
     });
   };
 
-  const processDecisionResponse = (response: Awaited<ReturnType<typeof sendTurn>>) => {
+  // One path for every answer. The backend decides where the story goes; the page always follows it:
+  // retry -> same page, ask again; story complete -> goodnight; same page -> ask its (new) question;
+  // otherwise -> turn to the next page. (Fixes the "three misses" case, where the backend moves on
+  // with result "miss" and the page used to stay behind.)
+  const processTurnResponse = (
+    response: Awaited<ReturnType<typeof sendTurn>>,
+    mode: "challenge" | "decision",
+  ) => {
     updateStars(response.stars);
-    if (response.retry) {
-      handleRetry(response, "decision");
+    setStoryComplete(response.story_complete);
+    if (response.retry && response.scene) {
+      handleRetry(response, mode);
       return;
     }
-
     setRetrying(false);
     setFeedback(response.result === "hit" ? "success" : "miss");
     setFeedbackCopy(response.feedback);
     setPhase("feedback");
-    if (response.result !== "hit") {
-      setCurrentScene(keepCurrentSceneForRetry(response.scene));
-      playAudioOrSpeech(response.feedback, response.feedback_audio_url, () => setPhase("ready"));
-      return;
-    }
 
-    setStoryComplete(response.story_complete);
-    playAudioOrSpeech(
-      response.feedback,
-      response.feedback_audio_url,
-      response.story_complete ? onFinish : () => narrateScene(response.scene),
-    );
-  };
-
-  const processChallengeResponse = (response: Awaited<ReturnType<typeof sendTurn>>) => {
-    updateStars(response.stars);
-    setStoryComplete(response.story_complete);
-    setFeedback(response.result === "hit" ? "success" : "miss");
-    setFeedbackCopy(response.feedback);
-    setPhase("feedback");
-
-    if (response.retry) {
-      handleRetry(response, "challenge");
-      return;
-    }
-
-    setRetrying(false);
-    if (response.result !== "hit") {
-      setCurrentScene(keepCurrentSceneForRetry(response.scene));
+    if (response.story_complete || !response.scene) {
       setPendingScene(null);
-      playAudioOrSpeech(response.feedback, response.feedback_audio_url, () => setPhase("ready"));
-      return;
-    }
-
-    if (response.scene.id === sceneRef.current?.id && response.scene.choices) {
-      setCurrentScene(response.scene);
-      setPendingScene(null);
-      playAudioOrSpeech(response.feedback, response.feedback_audio_url, () =>
-        askDecision(response.scene),
-      );
-      return;
-    }
-
-    if (response.story_complete) {
-      setCurrentScene(response.scene);
       playAudioOrSpeech(response.feedback, response.feedback_audio_url, onFinish);
       return;
     }
 
-    setPendingScene(response.scene);
+    const nextScene = response.scene;
+    if (nextScene.id === sceneRef.current?.id) {
+      setCurrentScene(nextScene);
+      setPendingScene(null);
+      playAudioOrSpeech(response.feedback, response.feedback_audio_url, () =>
+        nextScene.choices ? askDecision(nextScene) : askChallenge(nextScene),
+      );
+      return;
+    }
+
+    setPendingScene(nextScene);
     playAudioOrSpeech(response.feedback, response.feedback_audio_url, () => {
-      advanceTimerRef.current = window.setTimeout(() => narrateScene(response.scene), 900);
+      advanceTimerRef.current = window.setTimeout(() => narrateScene(nextScene), 900);
     });
   };
+  const processDecisionResponse = (response: Awaited<ReturnType<typeof sendTurn>>) =>
+    processTurnResponse(response, "decision");
+  const processChallengeResponse = (response: Awaited<ReturnType<typeof sendTurn>>) =>
+    processTurnResponse(response, "challenge");
 
   const submitRecording = async (
     mode: "challenge" | "decision",
@@ -1999,8 +2001,7 @@ function StoryScene({
     window.setTimeout(() => {
       if (run !== speechRunRef.current) return; // something else started in the meantime
       playNarration(nextScene, () => {
-        if (nextScene.index === nextScene.total) setPhase("ready");
-        else if (nextScene.choices) askDecision(nextScene);
+        if (nextScene.choices) askDecision(nextScene);
         else askChallenge(nextScene);
       });
     }, 1000);
@@ -2131,8 +2132,7 @@ function StoryScene({
       stopAllAudio();
       audioRef.current?.pause();
       setActiveSentence(null);
-      if (current.index === current.total) setPhase("ready");
-      else if (current.choices) askDecision(current);
+      if (current.choices) askDecision(current);
       else askChallenge(current);
       return;
     }
@@ -2214,8 +2214,7 @@ function StoryScene({
     setReviewIndex(null);
     const current = sceneRef.current;
     if (!current) return;
-    if (current.index === current.total) setPhase("ready");
-    else if (current.choices) askDecision(current);
+    if (current.choices) askDecision(current);
     else askChallenge(current);
   };
 
@@ -2226,10 +2225,16 @@ function StoryScene({
     setSending(true);
     setPhase("thinking");
     try {
-      const response = await sendTurn(
-        currentSession,
-        result === "success" ? "__demo_hit__" : "__demo_miss__",
-      );
+      // Live backend: send the real answer for this page (the mock story's word would score a miss).
+      const target = sceneRef.current.challenge.target_words.join(" ");
+      const transcript = isOfflineDemo()
+        ? result === "success"
+          ? "__demo_hit__"
+          : "__demo_miss__"
+        : result === "success"
+          ? target
+          : "pizza";
+      const response = await sendTurn(currentSession, transcript);
       setOfflineDemo(isOfflineDemo());
       processChallengeResponse(response);
     } finally {
@@ -2450,6 +2455,20 @@ function StoryScene({
           );
         })()}
 
+        {closingBook && (
+          <div className="closing-book" aria-live="polite">
+            <div className="closing-book-inner">
+              <span className="closing-moon" aria-hidden="true">🌙</span>
+              <h1>The end</h1>
+              <p>
+                {dayPart() === "morning" || dayPart() === "afternoon"
+                  ? `Well done, ${child.name}!`
+                  : `Goodnight, ${child.name}. Sweet dreams!`}
+              </p>
+              {stars > 0 && <b className="closing-stars">⭐ {stars} {stars === 1 ? "star" : "stars"}</b>}
+            </div>
+          </div>
+        )}
         {titleCard && (
           <div className="title-card" aria-live="polite">
             <span className="title-card-moon" aria-hidden="true">🌙</span>
@@ -2490,11 +2509,11 @@ function StoryScene({
           </p>
         </div>
         {reviewing && (
-          <p className="review-note">Looking back at an earlier page · tap “Turn page” to continue</p>
+          <p className="review-note">Looking back at an earlier page · tap “Turn the page” to continue</p>
         )}
         {!reviewing && (
         <>
-        {!isFinalScene && phase !== "narrating" && (
+        {phase !== "narrating" && (
           <div className={`guide-bubble ${feedback}`}>
             <span className="guide-face">
               <i />
@@ -2512,7 +2531,7 @@ function StoryScene({
             </p>
           </div>
         )}
-        {isFinalScene ? (
+        {isFinalScene && phase === "ready" && !sending ? (
           <button className="primary-button story-next" onClick={onFinish}>
             {dayPart() === "morning" || dayPart() === "afternoon" ? "The end!" : "The end — goodnight!"}
           </button>
@@ -2583,7 +2602,7 @@ function StoryScene({
             </span>
           </div>
         )}
-        {!isFinalScene && retrying && !atDecision && (
+        {retrying && !atDecision && (
           <div className="retry-hints">
             <span>Try again, you've got this!</span>
             <div>
@@ -2601,7 +2620,7 @@ function StoryScene({
             </div>
           </div>
         )}
-        {!isFinalScene && (
+        {(
           <button
             className={`manual-mic ${retrying ? "retry-ready" : ""}`}
             disabled={micBlocked || phase === "narrating" || phase === "thinking" || sending}
@@ -2610,7 +2629,7 @@ function StoryScene({
             <Icon name="mic" size={17} /> Tap microphone
           </button>
         )}
-        {!isFinalScene && micBlocked && (
+        {micBlocked && (
           <div className="mic-blocked">
             <Icon name="lock" size={16} />
             <p>
@@ -2679,9 +2698,9 @@ function StoryScene({
             className="page-button page-button--next"
             onClick={goNextPage}
             disabled={sending || phase === "thinking"}
-            aria-label="Turn page"
+            aria-label="Turn the page"
           >
-            <span>Turn page</span> ›
+            <span>Turn the page</span> ›
           </button>
         )}
         </nav>
@@ -3271,6 +3290,12 @@ function Dashboard({
                       {actionLabel}
                     </span>
                     <p>{entry.reason}</p>
+                    {entry.question_reason && (
+                      <p className="timeline-why">
+                        <b>{questionTypeLabels[entry.question_type ?? ""] ?? "Question"}:</b>{" "}
+                        {entry.question_reason}
+                      </p>
+                    )}
                   </li>
                 );
               })}
@@ -3326,7 +3351,8 @@ export default function App() {
   };
 
   const addChild = (child: Child) => {
-    const nextChild = { ...child, id: Math.max(...children.map((item) => item.id), 0) + 1 };
+    // A unique id, so a new child never inherits an earlier child's saved pages, stars or history.
+    const nextChild = { ...child, id: Date.now() };
     setChildren([...children, nextChild]);
     setActiveId(nextChild.id);
     setScreen("library");
@@ -3411,7 +3437,7 @@ export default function App() {
           void getProgress(activeChild.id).then((progress) => {
             if (!isOfflineDemo() && progress.summary) addSummaryToLatest(activeChild.id, progress.summary);
           });
-          setScreen("goodnight");
+          setScreen("children"); // the book has closed: back to the starting page
         }}
         onExit={() => setScreen("library")}
       />

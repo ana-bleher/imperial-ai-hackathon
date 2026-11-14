@@ -62,7 +62,7 @@
       "image_prompt": "Soft watercolor children's picture-book background, wide landscape. Calm sparkling river at golden dusk. On the left, a sturdy low wooden bridge decorated with tiny hanging bells. On the right, a small safe wooden boat with soft cushions moored by the bank. Both options equally prominent and easy for a young child to distinguish. Pale blue glowing flowers on far bank. Empty foreground for avatar. No people, no animals, no insects, no text.",
       "avatar_position": {
         "x": 0.36,
-        "y": 0.93,
+        "y": 0.88,
         "scale": 0.3
       },
       "decision": {
@@ -90,8 +90,8 @@
       "narration": "{CHILD_NAME} chose the bridge. They crossed it slowly, step by step. The tiny bells rang three times: ting, ting, ting! {CHILD_NAME} tied a ribbon to the rail. 'What a lovely sound,' said Pip, as they reached the other side.",
       "image_prompt": "Soft watercolor children's picture-book background, wide landscape. View from a safe wooden footbridge over calm water at dusk, small brass bells on the railings and a pretty ribbon tied in a bow, warm gold reflections, glowing flower bank ahead. Clear foreground space for an avatar. No people, no animals, no insects, no text.",
       "avatar_position": {
-        "x": 0.45,
-        "y": 0.7,
+        "x": 0.33,
+        "y": 0.72,
         "scale": 0.32
       },
       "next": "s5a",
@@ -109,7 +109,7 @@
       "image_prompt": "Soft watercolor children's picture-book background, wide landscape. Peaceful view along a slow river at dusk, small wooden boat with soft cushions in the foreground, gentle round ripples and subtle silver fish shape just under the water, pale blue flowers on distant bank. Leave clear space in boat for separately overlaid avatar. No people, no animals except a subtle fish beneath the water, no insects, no text.",
       "avatar_position": {
         "x": 0.47,
-        "y": 0.7,
+        "y": 0.74,
         "scale": 0.24
       },
       "next": "s5b",
@@ -127,7 +127,7 @@
       "image_prompt": "Soft watercolor children's picture-book background, wide landscape. Cosy warm bedroom at night, soft cream blanket on a small bed, stars through window, tiny decorative bell hanging by the window as a reminder of the bridge, faint blue flower on bedside table, soft lamplight. Open visual space for overlaid avatar. No people, no animals, no insects, no text.",
       "avatar_position": {
         "x": 0.64,
-        "y": 0.93,
+        "y": 0.88,
         "scale": 0.32
       },
       "next": null,
@@ -144,7 +144,7 @@
       "image_prompt": "Soft watercolor children's picture-book background, wide landscape. Cosy warm bedroom at night with cream blanket on a little bed, silver moonlight through window, gentle circular ripple pattern reflected on wall and a small blue flower on bedside table, calm blue and cream palette. Clear visual space for overlaid avatar. No people, no animals, no insects, no text.",
       "avatar_position": {
         "x": 0.42,
-        "y": 0.94,
+        "y": 0.88,
         "scale": 0.32
       },
       "next": null,
