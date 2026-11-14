@@ -1,19 +1,45 @@
-"""Kiko: quick manual test of the painted avatar.
+"""Manual fal integration test (uses credits and uploads a synthetic avatar).
 
-1. Put FAL_KEY=... in your .env
-2. Save a PNG of an avatar from the app as tests/sample_avatar.png
-   (Ana: right-click the avatar in the builder -> or ask Claude for one)
-3. py tests/try_paint_avatar.py
-The result lands in static/avatars/. Open it and compare with a scene background.
+Run from the repository root:
+    py tests/try_paint_avatar.py
+    py tests/try_paint_avatar.py path/to/avatar.png --output path/to/result.png
+
+Edit PROMPT in tools/paint_avatar.py to change the watercolor style.
 """
+
+import argparse
 import sys
+import time
 from pathlib import Path
 
-from dotenv import load_dotenv
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-load_dotenv()
-from tools import paint_avatar  # noqa: E402
+from tools.paint_avatar import paint_avatar  # noqa: E402
 
-png = (Path(__file__).parent / "sample_avatar.png").read_bytes()
-print(paint_avatar.paint(png) or "failed - check FAL_KEY and the model ids")
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("avatar", nargs="?", type=Path, default=ROOT / "tests/sample_avatar.png")
+    parser.add_argument(
+        "--output", type=Path, default=ROOT / "tests/avatar_results/sample_avatar.png"
+    )
+    args = parser.parse_args()
+    started = time.perf_counter()
+    try:
+        result = paint_avatar(args.avatar, args.output)
+    except Exception as exc:
+        # Keep credentials out of error messages, including errors from dependencies.
+        import os
+
+        message = str(exc)
+        key = os.getenv("FAL_KEY")
+        if key:
+            message = message.replace(key, "[redacted]")
+        sys.exit(f"Avatar test failed ({type(exc).__name__}): {message}")
+    print(f"Transparent avatar: {result}")
+    print(f"Total: {time.perf_counter() - started:.1f}s")
+
+
+if __name__ == "__main__":
+    main()
