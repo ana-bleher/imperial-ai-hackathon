@@ -31,14 +31,15 @@ BRANCH = {"id": "b", "narration": "A bridge and a boat.",
 # ---------- fake model ----------
 
 class FakeModel:
-    def __init__(self, *calls, delay=0.0, stop_reason="tool_use"):
+    def __init__(self, *calls, delay=0.0, stop_reason="tool_use", usage=None):
         self.calls, self.delay, self.stop_reason, self.messages = calls, delay, stop_reason, []
+        self.usage = usage
 
     async def __call__(self, messages):
         self.messages.append(messages)
         if self.delay:
             await asyncio.sleep(self.delay)
-        return SimpleNamespace(stop_reason=self.stop_reason, content=[
+        return SimpleNamespace(stop_reason=self.stop_reason, usage=self.usage, content=[
             SimpleNamespace(type="text", text="ignored"),
             *(SimpleNamespace(type="tool_use", name=n, input=i) for n, i in self.calls)])
 
@@ -95,6 +96,46 @@ def test_agent_accepts_near_miss(monkeypatch):
     d, meta = decide(s, "fowest")
     assert meta["source"] == "agent" and d["result"] == "hit" and d["next_id"] == "s2"
     assert s["key_word"] in s["practised"]
+
+
+@pytest.mark.parametrize("usage", [
+    {"input_tokens": 90, "output_tokens": 60, "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 1800},
+    SimpleNamespace(input_tokens=90, output_tokens=60, cache_creation_input_tokens=0,
+                    cache_read_input_tokens=1800),
+])
+def test_agent_records_cache_and_token_usage(monkeypatch, caplog, usage):
+    use(monkeypatch, *hit("You said 'forest'!"), usage=usage)
+    with caplog.at_level("INFO", logger="tutor"):
+        _, meta = decide(session(), "forest")
+    assert {key: meta[key] for key in tutor.USAGE_FIELDS} == {
+        "input_tokens": 90, "output_tokens": 60,
+        "cache_creation_input_tokens": 0, "cache_read_input_tokens": 1800,
+    }
+    assert "cache_read_input_tokens=1800" in caplog.text
+
+
+def test_missing_usage_is_unknown_not_a_cache_miss(monkeypatch):
+    use(monkeypatch, *hit("You said 'forest'!"))
+    _, meta = decide(session(), "forest")
+    assert all(meta[key] is None for key in tutor.USAGE_FIELDS)
+
+
+def test_invalid_output_keeps_usage_for_fallback_measurements(monkeypatch):
+    use(monkeypatch, *hit("Lovely!"), usage={"input_tokens": 90, "output_tokens": 60,
+                                          "cache_creation_input_tokens": 1800, "cache_read_input_tokens": 0})
+    _, meta = decide(session(), "forest")
+    assert meta["source"] == "fallback"
+    assert meta["cache_creation_input_tokens"] == 1800
+    assert meta["cache_read_input_tokens"] == 0
+
+
+def test_malformed_usage_does_not_force_fallback(monkeypatch):
+    use(monkeypatch, *hit("You said 'forest'!"), usage={"input_tokens": -1, "output_tokens": "60",
+                                                     "cache_read_input_tokens": True})
+    _, meta = decide(session(), "forest")
+    assert meta["source"] == "agent"
+    assert all(meta[key] is None for key in tutor.USAGE_FIELDS)
 
 
 def test_agent_level_up_and_next_scene_challenge(monkeypatch):
