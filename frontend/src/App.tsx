@@ -1252,8 +1252,11 @@ function StoryScene({
   }, [scene?.image_url]);
 
   const setCurrentScene = (nextScene: Scene) => {
+    // Only hide the background when the picture actually changes. Re-setting the same
+    // scene (retries, decisions) keeps the same <img>, whose onLoad never fires again,
+    // so resetting to "loading" made the background vanish.
+    if (sceneRef.current?.image_url !== nextScene.image_url) setSceneImageStatus("loading");
     sceneRef.current = nextScene;
-    setSceneImageStatus("loading");
     setScene(nextScene);
   };
 

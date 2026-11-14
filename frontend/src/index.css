@@ -3428,3 +3428,26 @@
   background: rgba(96, 110, 60, 0.22); /* soft grass-green shadow, not navy */
   filter: blur(3px);
 }
+
+/* Desktop story panel: start at the top, never overlap the progress label */
+@media (min-width: 700px) {
+  .story-screen .story-controls {
+    justify-content: flex-start;
+    overflow-y: auto;
+    padding-top: 28px;
+  }
+  .story-screen .story-progress {
+    position: static;
+    margin-bottom: 22px;
+  }
+  .story-screen .narration {
+    align-items: flex-start;
+  }
+  .story-screen .narration p {
+    font-size: 21px;
+    line-height: 1.5;
+  }
+}
+.narration p {
+  min-width: 0;
+}
