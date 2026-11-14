@@ -214,7 +214,7 @@ def scene_payload(sess: dict, request: Request, narration_audio: str | None = No
         "total": TOTAL,
         "narration": narration_for(sess, scene),
         "narration_audio_url": audio_url(request, narration_audio),
-        "image_url": f"{base}/static/scenes/{scene['id']}.png",
+        "image_url": f"{base}/static/scenes/{scene['id']}.jpg",
         "avatar_position": scene.get("avatar_position") or DEFAULT_AVATAR_POSITION,
         "challenge": sess["challenge"],
         "choices": fallback.scene_choices(scene),

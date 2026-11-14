@@ -142,7 +142,7 @@ returns
 ```json
 { "session_id": "abc", "child_id": "mia-1", "avatar_url": null,
   "scene": { "id": "s1", "index": 1, "total": 5, "narration": "...", "narration_audio_url": null,
-             "image_url": "https://.../s1.png", "avatar_position": {"x": 0.26, "y": 0.64, "scale": 0.32},
+             "image_url": "https://.../s1.jpg", "avatar_position": {"x": 0.26, "y": 0.64, "scale": 0.32},
              "challenge": { "level": 1, "prompt": "Can you say 'afternoon'?", "target_words": ["afternoon"] },
              "choices": null } }
 ```
