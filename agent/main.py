@@ -108,6 +108,7 @@ STORY_VOCAB = set(fallback.words(json.dumps(STORY)))
 
 VOICE_TIMEOUT = 5  # seconds; a slower voice call returns no audio instead of failing the request
 NARRATION: dict[str, asyncio.Task] = {}  # scene id + narration text -> task giving /static/... path
+CHALLENGE: dict[str, asyncio.Task] = {}  # challenge prompt text -> task giving /static/... path
 BACKGROUND: set[asyncio.Task] = set()   # keeps background tasks alive until they finish
 
 
@@ -199,13 +200,35 @@ async def narration_path(sess: dict, scene_id: str) -> str | None:
         return None
 
 
+def challenge_task(text: str) -> asyncio.Task:
+    """The (cached) task speaking a challenge prompt. Failed tasks are retried."""
+    key = hashlib.sha1(text.encode()).hexdigest()[:12]
+    task = CHALLENGE.get(key)
+    if (task is None or task.get_loop() is not asyncio.get_running_loop()
+            or (task.done() and (task.cancelled() or task.result() is None))):
+        task = CHALLENGE[key] = asyncio.create_task(voice(voice_tools.speak, text))
+    return task
+
+
+async def challenge_path(sess: dict) -> str | None:
+    """Audio of the current challenge prompt, or None when there is no challenge or voice fails."""
+    prompt = (sess.get("challenge") or {}).get("prompt")
+    if not prompt:
+        return None
+    try:
+        return await challenge_task(prompt)  # bounded by VOICE_TIMEOUT inside voice()
+    except Exception:
+        return None
+
+
 async def speak_all_narration(sess: dict) -> None:
     """One scene at a time, so we stay within ElevenLabs' concurrency limit."""
     for sid in SCENES:
         await narration_path(sess, sid)
 
 
-def scene_payload(sess: dict, request: Request, narration_audio: str | None = None) -> dict:
+def scene_payload(sess: dict, request: Request, narration_audio: str | None = None,
+                  challenge_audio: str | None = None) -> dict:
     scene = SCENES[sess["scene_id"]]
     base = base_url(request)
     return {
@@ -217,6 +240,7 @@ def scene_payload(sess: dict, request: Request, narration_audio: str | None = No
         "image_url": f"{base}/static/scenes/{scene['id']}.jpg",
         "avatar_position": scene.get("avatar_position") or DEFAULT_AVATAR_POSITION,
         "challenge": sess["challenge"],
+        "challenge_audio_url": audio_url(request, challenge_audio),
         "choices": fallback.scene_choices(scene),
     }
 
@@ -267,10 +291,11 @@ async def session_start(request: Request):
     }
     enter_scene(sess, START)
     SESSIONS[session_id] = sess
-    first_audio = await narration_path(sess, START)  # first scene's audio is ready in the response
+    first_audio, first_challenge_audio = await asyncio.gather(  # first scene's audio is ready in the response
+        narration_path(sess, START), challenge_path(sess))
     in_background(speak_all_narration(sess))         # the rest is generated while the child listens
     return {"session_id": session_id, "child_id": child_id, "avatar_url": None,
-            "scene": scene_payload(sess, request, first_audio)}
+            "scene": scene_payload(sess, request, first_audio, first_challenge_audio)}
 
 
 @app.post("/turn")
@@ -325,10 +350,11 @@ async def turn(request: Request):
     elif d["next_id"]:
         enter_scene(sess, d["next_id"], d.get("next_challenge"))
 
-    # Feedback speech and the next scene's narration (usually cached already) in parallel.
-    feedback_audio, narration_audio = await asyncio.gather(
+    # Feedback speech, the next scene's narration (usually cached already) and the challenge in parallel.
+    feedback_audio, narration_audio, challenge_audio = await asyncio.gather(
         voice(voice_tools.speak, d["feedback"]),
         narration_path(sess, sess["scene_id"]) if not story_complete else asyncio.sleep(0),
+        challenge_path(sess) if not story_complete else asyncio.sleep(0),
     )
 
     entry["turn_ms"] = round((time.perf_counter() - started) * 1000)
@@ -341,7 +367,7 @@ async def turn(request: Request):
         "transcript": transcript, "result": d["result"], "feedback": d["feedback"],
         "feedback_audio_url": audio_url(request, feedback_audio),
         "retry": d["retry"],
-        "scene": None if story_complete else scene_payload(sess, request, narration_audio),
+        "scene": None if story_complete else scene_payload(sess, request, narration_audio, challenge_audio),
         "story_complete": story_complete,
     }
 

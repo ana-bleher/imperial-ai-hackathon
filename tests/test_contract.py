@@ -86,3 +86,60 @@ def test_progress():
     r = client.get(f"/progress/{sess['child_id']}")
     assert r.status_code == 200
     assert_same_keys(load("progress_response.json"), r.json())
+
+
+def test_challenge_audio_null_when_voice_fails():
+    sess = start()
+    assert sess["scene"]["challenge_audio_url"] is None
+    word = sess["scene"]["challenge"]["target_words"][0]
+    r = client.post("/turn", json={"session_id": sess["session_id"], "transcript": word}).json()
+    assert r["scene"]["challenge_audio_url"] is None
+
+
+def test_challenge_audio_url_and_cache(monkeypatch):
+    from agent import main
+    from tools import voice
+
+    spoken = []
+
+    def fake_speak(text):
+        spoken.append(text)
+        return f"/static/audio/{len(spoken)}.mp3"
+    monkeypatch.setattr(voice, "speak", fake_speak)
+    monkeypatch.setattr(main, "CHALLENGE", {})
+
+    sess = start()
+    prompt = sess["scene"]["challenge"]["prompt"]
+    assert sess["scene"]["challenge_audio_url"].startswith("http")
+    assert sess["scene"]["challenge_audio_url"].endswith(".mp3")
+    assert spoken.count(prompt) == 1
+
+    # A miss keeps the scene; the retry challenge gets its own audio, and repeats come from the cache.
+    r = client.post("/turn", json={"session_id": sess["session_id"], "transcript": "banana"}).json()
+    assert r["retry"] is True
+    assert r["scene"]["challenge_audio_url"] is not None
+    assert r["feedback_audio_url"] is not None
+
+
+def test_challenge_audio_cached_per_prompt(monkeypatch):
+    import asyncio
+    from agent import main
+    from tools import voice
+
+    spoken = []
+
+    def fake_speak(text):
+        spoken.append(text)
+        return "/static/audio/c.mp3"
+    monkeypatch.setattr(voice, "speak", fake_speak)
+    monkeypatch.setattr(main, "CHALLENGE", {})
+
+    async def run():
+        sess = {"challenge": {"level": 1, "prompt": "Can you say 'moon'?", "target_words": ["moon"]}}
+        paths = [await main.challenge_path(sess), await main.challenge_path(dict(sess))]
+        sess["challenge"] = None
+        return paths, await main.challenge_path(sess)
+    paths, none_path = asyncio.run(run())
+    assert paths == ["/static/audio/c.mp3"] * 2
+    assert spoken == ["Can you say 'moon'?"]  # spoken once, then served from the cache
+    assert none_path is None
