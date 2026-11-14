@@ -230,3 +230,7 @@ node_modules/
 data/*.csv
 data/*.parquet
 data/*.xlsx
+
+# Generated speech and local voice test clips (never commit child audio)
+static/audio/*.mp3
+/clip*.m4a

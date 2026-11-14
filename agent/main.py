@@ -4,11 +4,14 @@ The story (scenes, order, branches, decisions, endings) comes from data/story.js
 
 Run locally:  uvicorn agent.main:app --reload
 """
+import asyncio
+import hashlib
 import json
 import logging
 import re
 import time
 import uuid
+from contextlib import asynccontextmanager
 from datetime import date
 from pathlib import Path
 
@@ -21,6 +24,7 @@ from dotenv import load_dotenv
 load_dotenv()  # ANTHROPIC_API_KEY for the tutor agent (never committed)
 
 from agent import fallback, tutor  # noqa: E402
+from tools import voice as voice_tools  # noqa: E402
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("turn")
@@ -102,7 +106,34 @@ TOTAL = max(path_depth(sid) for sid in SCENES)
 # Every word in the story file: the agent may say these even if the child said them too.
 STORY_VOCAB = set(fallback.words(json.dumps(STORY)))
 
-app = FastAPI(title="Story-time mock backend")
+VOICE_TIMEOUT = 5  # seconds; a slower voice call returns no audio instead of failing the request
+NARRATION: dict[str, asyncio.Task] = {}  # scene id + narration text -> task giving /static/... path
+BACKGROUND: set[asyncio.Task] = set()   # keeps background tasks alive until they finish
+
+
+async def voice(fn, *args):
+    """Run a blocking voice call with a time limit. Returns None on any failure or timeout."""
+    started = time.perf_counter()
+    try:
+        return await asyncio.wait_for(asyncio.to_thread(fn, *args), VOICE_TIMEOUT)
+    except Exception as e:
+        log.warning("voice %s failed after %.1fs: %r", fn.__name__, time.perf_counter() - started, e)
+        return None
+
+
+def in_background(coro) -> None:
+    task = asyncio.create_task(coro)
+    BACKGROUND.add(task)
+    task.add_done_callback(BACKGROUND.discard)
+
+
+@asynccontextmanager
+async def lifespan(app):
+    in_background(voice(voice_tools.speak, "Hello!"))  # warm up the TTS connection
+    yield
+
+
+app = FastAPI(title="Story-time mock backend", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
 
@@ -146,7 +177,35 @@ def base_url(request: Request) -> str:
     return str(request.base_url).rstrip("/")
 
 
-def scene_payload(sess: dict, request: Request) -> dict:
+def audio_url(request: Request, path: str | None) -> str | None:
+    return f"{base_url(request)}{path}" if path else None
+
+
+def narration_task(sess: dict, scene_id: str) -> asyncio.Task:
+    """The (cached) task speaking this child's narration of a scene. Failed tasks are retried."""
+    text = narration_for(sess, SCENES[scene_id])
+    key = f"{scene_id}:{hashlib.sha1(text.encode()).hexdigest()[:12]}"
+    task = NARRATION.get(key)
+    if (task is None or task.get_loop() is not asyncio.get_running_loop()
+            or (task.done() and (task.cancelled() or task.result() is None))):
+        task = NARRATION[key] = asyncio.create_task(voice(voice_tools.speak, text))
+    return task
+
+
+async def narration_path(sess: dict, scene_id: str) -> str | None:
+    try:
+        return await narration_task(sess, scene_id)  # bounded by VOICE_TIMEOUT inside voice()
+    except Exception:
+        return None
+
+
+async def speak_all_narration(sess: dict) -> None:
+    """One scene at a time, so we stay within ElevenLabs' concurrency limit."""
+    for sid in SCENES:
+        await narration_path(sess, sid)
+
+
+def scene_payload(sess: dict, request: Request, narration_audio: str | None = None) -> dict:
     scene = SCENES[sess["scene_id"]]
     base = base_url(request)
     return {
@@ -154,7 +213,7 @@ def scene_payload(sess: dict, request: Request) -> dict:
         "index": path_depth(scene["id"]),
         "total": TOTAL,
         "narration": narration_for(sess, scene),
-        "narration_audio_url": None,  # until real narration audio exists
+        "narration_audio_url": audio_url(request, narration_audio),
         "image_url": f"{base}/static/scenes/{scene['id']}.png",
         "avatar_position": scene.get("avatar_position") or DEFAULT_AVATAR_POSITION,
         "challenge": sess["challenge"],
@@ -203,20 +262,10 @@ async def session_start(request: Request):
     }
     enter_scene(sess, START)
     SESSIONS[session_id] = sess
+    first_audio = await narration_path(sess, START)  # first scene's audio is ready in the response
+    in_background(speak_all_narration(sess))         # the rest is generated while the child listens
     return {"session_id": session_id, "child_id": child_id, "avatar_url": None,
-            "scene": scene_payload(sess, request)}
-
-
-def mock_answer(sess: dict) -> str:
-    """Until voice is wired in: a right answer for the current scene."""
-    scene = SCENES[sess["scene_id"]]
-    targets = sess["challenge"]["target_words"]
-    kind = fallback.decision_type(scene)
-    if kind == fallback.SINGLE_CORRECT:
-        return scene["decision"]["correct_word"]
-    if kind == fallback.BRANCH_CHOICE:
-        return targets[0]
-    return " ".join(targets)
+            "scene": scene_payload(sess, request, first_audio)}
 
 
 @app.post("/turn")
@@ -228,9 +277,12 @@ async def turn(request: Request):
     else:
         form = await request.form()
         session_id = form.get("session_id")
-        # Mock: audio is ignored (never stored) and treated as saying the target words.
-        sess = SESSIONS.get(session_id)
-        transcript = mock_answer(sess) if sess else ""
+        audio = form.get("audio")
+        transcript = ""  # no audio, a failed or slow transcription, or nothing said = silence
+        if audio is not None and hasattr(audio, "read"):
+            # Kept in memory only: the child's audio is never stored on our server.
+            transcript = await voice(voice_tools.transcribe, await audio.read(),
+                                     audio.content_type or "audio/webm") or ""
 
     sess = SESSIONS.get(session_id)
     if not sess:
@@ -265,6 +317,12 @@ async def turn(request: Request):
     elif d["next_id"]:
         enter_scene(sess, d["next_id"], d.get("next_challenge"))
 
+    # Feedback speech and the next scene's narration (usually cached already) in parallel.
+    feedback_audio, narration_audio = await asyncio.gather(
+        voice(voice_tools.speak, d["feedback"]),
+        narration_path(sess, sess["scene_id"]) if not story_complete else asyncio.sleep(0),
+    )
+
     entry["turn_ms"] = round((time.perf_counter() - started) * 1000)
     sess["log"].append(entry)
     log.info("turn %s scene=%s result=%s action=%s source=%s agent_ms=%s turn_ms=%s%s",
@@ -273,9 +331,9 @@ async def turn(request: Request):
 
     return {
         "transcript": transcript, "result": d["result"], "feedback": d["feedback"],
-        "feedback_audio_url": None,  # until real feedback audio exists
+        "feedback_audio_url": audio_url(request, feedback_audio),
         "retry": d["retry"],
-        "scene": None if story_complete else scene_payload(sess, request),
+        "scene": None if story_complete else scene_payload(sess, request, narration_audio),
         "story_complete": story_complete,
     }
 
