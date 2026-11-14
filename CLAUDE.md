@@ -32,18 +32,18 @@ Figma Make app (hosted)  ──HTTPS──▶  FastAPI backend (deployed on Rend
  audio playback, images                 ElevenLabs STT + TTS · fal images · /static audio + images
 ```
 - Backend must allow CORS from any origin and be reachable over HTTPS (Figma Make can't call localhost).
-- Audio: backend saves TTS mp3 files to `backend/static/` and returns their URLs.
+- Audio: backend saves TTS mp3 files to `static/` and returns their URLs.
 - Narration audio for all scenes is generated right after /session/start (in the background), so the
   story never waits.
 
 ### Avatar approach (low risk)
 1. Generate the avatar ONCE with fal from the traits (illustrated, plain background).
 2. Remove the background (fal background-removal model) → transparent PNG.
-3. Scene illustrations are PRE-MADE (no character in them), stored in `backend/static/scenes/`.
+3. Scene illustrations are PRE-MADE (no character in them), stored in `static/scenes/`.
 4. Frontend overlays the avatar PNG on each scene at `avatar_position` from the scene data.
 Stretch only: per-scene generation with the avatar as reference image.
 
-### Agent tools (backend/tools/, one file per tool)
+### Agent tools (tools/, one file per tool)
 - `get_scene(scene_id)` → scene text, challenge per level, allowed branches (from data/story.json)
 - `evaluate_answer(transcript, target_words)` → plain Python: hit/miss, matched words, word count
 - `choose_next(scene_id, transcript)` → next scene id, ONLY from allowed branches
@@ -103,11 +103,42 @@ Change field names only by team agreement; update `contract/` and tell the front
 - **Kiko (Francisco):** story.json + scene illustrations, tests, integration checks, Devpost, write-up, deck, demo
 - **Ana:** Figma Make frontend (all screens, mic, audio, dashboard), UX, video, lead presenter
 
-## Repo layout
-- `backend/main.py` endpoints · `backend/agent/` loop + prompt · `backend/tools/` · `backend/static/` audio + images
-- `data/story.json` · `contract/*.json` example requests/responses · `tests/` · `frontend/` (exported Figma Make code)
-- `prompts/story_agent.md` system prompt
+## Repo layout (matches the existing repo)
+| Path | What goes in it | Owner |
+|---|---|---|
+| `agent/` | FastAPI app (`agent/main.py`), agent loop, `/session/start` `/turn` `/progress` | Back-end (Anvay, Ines) |
+| `tools/` | One file per tool: the function and its description | Back-end (Anvay, Ines) |
+| `prompts/` | `story_agent.md` system prompt | Back-end |
+| `data/` | `story.json` and other small data files | Kiko (story), Back-end |
+| `static/` | Generated audio, avatars, pre-made scene images (served at /static) | Back-end, Kiko (scenes) |
+| `tests/` | 5 test inputs + expected outputs, rerun after every change | Anvay, Kiko |
+| `contract/` | Example request/response JSON shared by both teams | Both, by agreement only |
+| `frontend/` | Exported Figma Make code + mock JSON | Front-end (Ana, Kiko) |
+| `notebooks/` | Experiments, not imported by the app | Anyone |
 
 ## Working rules
 - Pull before working, small commits with clear messages, never commit `.env`, `main` always runs.
 - Behind at 18:00? Cut features, protect the speaking loop.
+
+## Rules for AI assistants
+
+- Make small, focused changes. One feature or fix per request.
+- Only edit files in the current team's folders (see Repo layout). Ask before touching the other team's folders or `contract/`.
+- Never read, print, create or commit `.env` or any API key. Use `os.getenv` with names from `.env.example`.
+- Do not change the API contract above without flagging it explicitly.
+- Do not add dependencies without saying so; if you add one, update `requirements.txt`.
+- Prefer fake data in `data/` over live services until the walking skeleton works end to end.
+- After a change, say how to run or test it.
+- Do not run git commands (commit, push, pull, branch). Humans do that in GitHub Desktop.
+
+## Rules for humans
+
+- Each team works on its own branch: `backend` (Anvay, Ines) and `frontend` (Ana, Kiko).
+- Merge a team branch into `main` by Pull Request at every working milestone; after the other team merges, update your branch from `main`.
+- Name every commit for what it does ("Add lookup_order tool", not "update").
+- Pull before you start working.
+- Commit and push small and often; commit every time something works.
+- Work in your own folder where possible.
+- `main` must always run: the demo deploys from it.
+- Merge conflict or strange error? Ask the team; never force-push.
+- When a decision is made out loud, update this file.

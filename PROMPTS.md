@@ -34,16 +34,16 @@ Children's picture-book illustration, soft watercolour, warm muted colours, calm
 {IMAGE_PROMPT}. Wide landscape composition with empty space in the foreground for a character.
 No people, no animals in the foreground, no text.
 ```
-Save as `backend/static/scenes/{scene_id}.png`. Keep the same style words for every scene.
+Save as `static/scenes/{scene_id}.png`. Keep the same style words for every scene.
 
 ---
 
 ## C. Backend skeleton — Anvay (Claude Code, Opus 5.5) — START NOW
 ```
-Read CLAUDE.md. Build the backend in backend/ with FastAPI:
+Read CLAUDE.md. Build the backend with FastAPI (app in agent/main.py):
 1. POST /session/start, POST /turn (accepts multipart audio OR JSON transcript), GET /progress/{child_id}
    returning EXACTLY the example JSON in CLAUDE.md. Version 1 returns mock data, no AI.
-2. Serve backend/static/ at /static. CORS open to all origins.
+2. Serve static/ at /static. CORS open to all origins.
 3. In-memory session store: session_id, child profile, current scene, level, hit streak, miss counts, metrics.
 4. Load data/story.json if present; otherwise use a 2-scene placeholder story.
 5. Write contract/*.json example files and tests/test_contract.py checking every field exists.
@@ -55,7 +55,7 @@ Then deploy (Render: new Web Service from the GitHub repo, add env vars) and sha
 ## D. Real agent loop — Anvay (Claude Code) — after C works deployed
 ```
 Replace the mock in /turn with the real agent:
-- Tools in backend/tools/: get_scene, evaluate_answer (plain Python fuzzy match + word count),
+- Tools in tools/: get_scene, evaluate_answer (plain Python fuzzy match + word count),
   choose_next (only allowed branches), set_difficulty, log_progress, notify_parent.
 - Call the Anthropic API with model claude-sonnet-5-5, system prompt from prompts/story_agent.md,
   and these tools. The model writes the feedback text; the deterministic tools decide hit/miss and
@@ -85,10 +85,10 @@ Output only the words to say to the child, plus your tool calls.
 
 ## F. Voice — Ines (Claude Code) — START NOW
 ```
-Add backend/tools/voice.py:
+Add tools/voice.py:
 - transcribe(audio_bytes, mime_type) -> str using ElevenLabs speech-to-text (convert webm if needed).
 - speak(text) -> URL: ElevenLabs text-to-speech with VOICE_ID from .env, save mp3 to
-  backend/static/audio/{uuid}.mp3, return the public URL.
+  static/audio/{uuid}.mp3, return the public URL.
 - A script tests/voice_roundtrip.py: record/load a sample .webm → transcribe → speak → print latencies.
 Then wire it in: /turn with audio → transcribe → agent → speak(feedback).
 After /session/start, generate narration audio for all scenes in the background.
@@ -99,10 +99,10 @@ child talks without holding a button.
 
 ## G. Avatar — Ines (Claude Code + fal) — after F works
 ```
-Add backend/tools/images.py with make_avatar(traits) -> URL:
+Add tools/images.py with make_avatar(traits) -> URL:
 1. Call a fal text-to-image model with the avatar prompt below.
 2. Call a fal background-removal model on the result → transparent PNG.
-3. Save to backend/static/avatars/{child_id}.png and return the URL.
+3. Save to static/avatars/{child_id}.png and return the URL.
 Call it from /session/start. If it fails or takes >20s, return a default avatar so the demo continues.
 ```
 Avatar prompt:
