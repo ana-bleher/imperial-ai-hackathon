@@ -29,9 +29,9 @@ Not in the MVP. Do not build these until a clean full run has been recorded:
 | Cut | Use instead |
 |---|---|
 | Live story generation | The fixed story |
-| Avatar generation | One default character image |
+| Avatar generation | Avatar drawn in the frontend from the child's traits; `avatar_url` is null |
 | Real dashboard data | Mock data in the frontend |
-| Auto-listening | Hold-to-talk button |
+| Adaptive narration (story text easier or harder by level) | Fixed narration; optional add-on after the MVP |
 | Real-time ElevenLabs agent | Speech-to-text and text-to-speech calls |
 
 ## Architecture
@@ -45,6 +45,8 @@ Figma Make frontend  --HTTPS-->  FastAPI app agent/main.py (Render)  -->  Tutor 
 
 - The backend allows CORS from any origin and must be reachable over HTTPS.
 - The backend accepts whatever audio format the browser sends, not only webm.
+- Listening: the frontend opens the mic after narration and stops on silence, with hold-to-talk as a
+  fallback. It sends the same audio to `/turn` either way.
 - TTS audio is saved under `static/audio/` and returned as URLs; scene backgrounds live in `static/scenes/`.
 
 ## Who decides what
@@ -82,14 +84,15 @@ Build the fallback rule first. It takes minutes and the demo must never stall.
 - `next_step(action)` → "advance", "retry_with_hint" or "move_on"
 - `notify_parent(note)` → short note for the parent dashboard
 
-One model call per turn. Everything the agent says to the child is ONE short, warm sentence.
+One model call per turn. Everything the agent says to the child is ONE short, warm sentence. When narration or agent lines
+mention the hero, use the child's name and chosen pronouns (she/he/they).
 
 Not agent tools (code calls these every turn): `voice.transcribe(audio)`, `voice.speak(text)`, in `tools/voice.py`.
 
 ## One turn
 
 1. Frontend shows the scene and plays the narration, then the challenge.
-2. Child holds the button and speaks. Frontend posts the audio to `/turn`.
+2. The mic opens after the challenge (or the child holds the button) and the child speaks. Frontend posts the audio to `/turn`.
 3. Code transcribes it with ElevenLabs.
 4. Agent assesses the answer, sets the difficulty and picks the next step.
 5. Code checks the agent's choices against the limits above.
@@ -119,7 +122,7 @@ Branch scenes:
   "next": "s2"
 } ] }
 ```
-Branch scenes use `"branches": [{"word": "bridge", "next": "s3a"}, {"word": "boat", "next": "s3b"}]`
+Branch scenes use `"branches": [{"word": "bridge", "label": "Cross the bridge", "icon": "bridge", "next": "s3a"}, {"word": "boat", "label": "Take the boat", "icon": "boat", "next": "s3b"}]`
 in place of `"next"`. There is no pre-written word list: the agent picks each scene's target
 words from the narration.
 Branches follow scene 2 (s3a/s3b) and scene 4 (s5a/s5b). Both final scenes end calmly with the
@@ -129,14 +132,16 @@ hero getting ready for sleep.
 
 `POST /session/start`
 ```json
-{ "child_name": "Mia", "age": 5, "avatar": {"hair": "curly red", "outfit": "yellow raincoat", "pet": "fox", "fav_colour": "green"} }
+{ "child_name": "Mia", "age": 5, "pronouns": "she",
+  "avatar": {"skin_tone": "medium", "hair_style": "curly", "hair_colour": "red", "outfit": "raincoat", "pet": "fox"} }
 ```
 returns
 ```json
-{ "session_id": "abc", "child_id": "mia-1", "avatar_url": "https://.../avatar.png",
+{ "session_id": "abc", "child_id": "mia-1", "avatar_url": null,
   "scene": { "id": "s1", "index": 1, "total": 5, "narration": "...", "narration_audio_url": "https://...",
              "image_url": "https://.../s1.png", "avatar_position": {"x": 0.3, "y": 0.62, "scale": 0.35},
-             "challenge": { "level": 1, "prompt": "Can you say 'forest'?", "target_words": ["forest"] } } }
+             "challenge": { "level": 1, "prompt": "Can you say 'forest'?", "target_words": ["forest"] },
+             "choices": null } }
 ```
 `POST /turn`: multipart form with `session_id` and `audio`, OR JSON
 `{ "session_id": "abc", "transcript": "forest!" }` for testing. Returns
@@ -154,7 +159,10 @@ returns
   "nightly": [{"date": "2026-11-14", "hits": 5, "attempts": 7}],
   "parent_notes": ["Struggled with 'lantern' - practise together"] }
 ```
-For the MVP, `avatar_url` is the default character image. Change field names only by team
+`avatar_url` is null: the frontend draws the avatar from `pronouns` and `avatar`; the backend only stores them.
+`choices` is null on ordinary scenes. On branch scenes it lists the options for the tap cards:
+`[{"word": "lantern", "label": "Lift the lantern", "icon": "lantern"}, {"word": "owl", "label": "Ask the owl", "icon": "owl"}]`.
+`word` must match the branch words in `story.json`, so branches there carry `label` and `icon` too. Change field names only by team
 agreement, then update `contract/` and tell Ana.
 
 ## Audio
