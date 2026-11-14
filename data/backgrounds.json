@@ -1,0 +1,417 @@
+{
+  "note": "Background library for 'Your own adventure'. avatar_position: x, y = where the avatar's feet go (fractions of the picture); scale = avatar height as a fraction of the picture height. ending: suitable for the final goodnight page.",
+  "backgrounds": [
+    {
+      "id": "sunrise-meadow",
+      "file": "01-sunrise-meadow-watercolour-bg.jpg",
+      "url": "/static/backgrounds/01-sunrise-meadow-watercolour-bg.jpg",
+      "title": "Sunrise meadow",
+      "description": "Wide green meadow with soft rolling hills, a few round trees and a gentle sun rising over the hills.",
+      "time_of_day": "day",
+      "tags": [
+        "meadow",
+        "grass",
+        "hills",
+        "sunrise",
+        "trees"
+      ],
+      "avatar_position": {
+        "x": 0.3,
+        "y": 0.8,
+        "scale": 0.32
+      },
+      "ending": false
+    },
+    {
+      "id": "wildflower-garden",
+      "file": "02-wildflower-garden-watercolour-bg.jpg",
+      "url": "/static/backgrounds/02-wildflower-garden-watercolour-bg.jpg",
+      "title": "Wildflower garden",
+      "description": "Flower garden with tall pink and purple foxgloves, poppies and blue flowers, a rose arch on the right and a little winding path.",
+      "time_of_day": "day",
+      "tags": [
+        "garden",
+        "flowers",
+        "rose arch",
+        "path"
+      ],
+      "avatar_position": {
+        "x": 0.45,
+        "y": 0.8,
+        "scale": 0.3
+      },
+      "ending": false
+    },
+    {
+      "id": "golden-forest-trail",
+      "file": "03-golden-forest-trail-watercolour-bg.jpg",
+      "url": "/static/backgrounds/03-golden-forest-trail-watercolour-bg.jpg",
+      "title": "Golden forest trail",
+      "description": "Sunny forest of golden and orange trees with a soft path through the middle, ferns and mossy rocks.",
+      "time_of_day": "day",
+      "tags": [
+        "forest",
+        "trees",
+        "path",
+        "ferns",
+        "rocks"
+      ],
+      "avatar_position": {
+        "x": 0.5,
+        "y": 0.82,
+        "scale": 0.3
+      },
+      "ending": false
+    },
+    {
+      "id": "moonlit-clearing",
+      "file": "04-moonlit-woodland-clearing-watercolour-bg.jpg",
+      "url": "/static/backgrounds/04-moonlit-woodland-clearing-watercolour-bg.jpg",
+      "title": "Moonlit woodland clearing",
+      "description": "Quiet clearing in a blue night wood under a big full moon and twinkling stars, with little mushrooms at the edges.",
+      "time_of_day": "night",
+      "tags": [
+        "night",
+        "moon",
+        "stars",
+        "woods",
+        "mushrooms"
+      ],
+      "avatar_position": {
+        "x": 0.45,
+        "y": 0.82,
+        "scale": 0.3
+      },
+      "ending": false
+    },
+    {
+      "id": "autumn-woodland",
+      "file": "05-autumn-woodland-watercolour-bg.jpg",
+      "url": "/static/backgrounds/05-autumn-woodland-watercolour-bg.jpg",
+      "title": "Autumn woodland",
+      "description": "Woodland of red and orange autumn trees with falling leaves and a leafy path.",
+      "time_of_day": "day",
+      "tags": [
+        "autumn",
+        "leaves",
+        "trees",
+        "woods"
+      ],
+      "avatar_position": {
+        "x": 0.45,
+        "y": 0.84,
+        "scale": 0.3
+      },
+      "ending": false
+    },
+    {
+      "id": "riverside",
+      "file": "06-peaceful-riverside-watercolour-bg.jpg",
+      "url": "/static/backgrounds/06-peaceful-riverside-watercolour-bg.jpg",
+      "title": "Peaceful riverside",
+      "description": "Slow winding river through green fields, with tall reeds and a weeping willow tree on the right.",
+      "time_of_day": "day",
+      "tags": [
+        "river",
+        "water",
+        "reeds",
+        "willow tree"
+      ],
+      "avatar_position": {
+        "x": 0.28,
+        "y": 0.82,
+        "scale": 0.3
+      },
+      "ending": false
+    },
+    {
+      "id": "wooden-bridge",
+      "file": "07-wooden-bridge-watercolour-bg.jpg",
+      "url": "/static/backgrounds/07-wooden-bridge-watercolour-bg.jpg",
+      "title": "Wooden bridge",
+      "description": "Little arched wooden bridge over a blue stream, with leafy trees and flowers on both banks.",
+      "time_of_day": "day",
+      "tags": [
+        "bridge",
+        "stream",
+        "water",
+        "trees",
+        "flowers"
+      ],
+      "avatar_position": {
+        "x": 0.3,
+        "y": 0.82,
+        "scale": 0.3
+      },
+      "ending": false
+    },
+    {
+      "id": "lakeside-dawn",
+      "file": "08-lakeside-at-dawn-watercolour-bg.jpg",
+      "url": "/static/backgrounds/08-lakeside-at-dawn-watercolour-bg.jpg",
+      "title": "Lakeside at dawn",
+      "description": "Still misty lake at dawn with pine trees on the far shore, pink sky reflected in the water and smooth pebbles on the near shore.",
+      "time_of_day": "dawn",
+      "tags": [
+        "lake",
+        "water",
+        "pebbles",
+        "pine trees",
+        "mist"
+      ],
+      "avatar_position": {
+        "x": 0.3,
+        "y": 0.86,
+        "scale": 0.28
+      },
+      "ending": false
+    },
+    {
+      "id": "hidden-waterfall",
+      "file": "09-hidden-waterfall-watercolour-bg.jpg",
+      "url": "/static/backgrounds/09-hidden-waterfall-watercolour-bg.jpg",
+      "title": "Hidden waterfall",
+      "description": "Secret green glade with a small waterfall and a rainbow in its spray, a little pool, hanging vines, ferns and mossy rocks.",
+      "time_of_day": "day",
+      "tags": [
+        "waterfall",
+        "rainbow",
+        "pool",
+        "ferns",
+        "vines"
+      ],
+      "avatar_position": {
+        "x": 0.7,
+        "y": 0.82,
+        "scale": 0.3
+      },
+      "ending": false
+    },
+    {
+      "id": "sandy-beach",
+      "file": "10-sandy-beach-watercolour-bg.jpg",
+      "url": "/static/backgrounds/10-sandy-beach-watercolour-bg.jpg",
+      "title": "Sandy beach",
+      "description": "Wide soft sandy beach with gentle waves, a pale sky and a few seashells in the sand.",
+      "time_of_day": "day",
+      "tags": [
+        "beach",
+        "sand",
+        "sea",
+        "waves",
+        "shells"
+      ],
+      "avatar_position": {
+        "x": 0.45,
+        "y": 0.82,
+        "scale": 0.3
+      },
+      "ending": false
+    },
+    {
+      "id": "lighthouse-cliff",
+      "file": "11-lighthouse-cliff-watercolour-bg.jpg",
+      "url": "/static/backgrounds/11-lighthouse-cliff-watercolour-bg.jpg",
+      "title": "Lighthouse cliff",
+      "description": "Grassy clifftop by the sea with a red and white striped lighthouse glowing in the evening light.",
+      "time_of_day": "evening",
+      "tags": [
+        "lighthouse",
+        "sea",
+        "cliff",
+        "grass"
+      ],
+      "avatar_position": {
+        "x": 0.3,
+        "y": 0.82,
+        "scale": 0.3
+      },
+      "ending": false
+    },
+    {
+      "id": "snowy-valley",
+      "file": "12-snowy-winter-valley-watercolour-bg.jpg",
+      "url": "/static/backgrounds/12-snowy-winter-valley-watercolour-bg.jpg",
+      "title": "Snowy winter valley",
+      "description": "Quiet snowy valley with frosty pine trees, a frozen winding stream and soft falling snow.",
+      "time_of_day": "day",
+      "tags": [
+        "snow",
+        "winter",
+        "pine trees",
+        "frozen stream"
+      ],
+      "avatar_position": {
+        "x": 0.45,
+        "y": 0.82,
+        "scale": 0.3
+      },
+      "ending": false
+    },
+    {
+      "id": "mountain-viewpoint",
+      "file": "13-mountain-viewpoint-watercolour-bg.jpg",
+      "url": "/static/backgrounds/13-mountain-viewpoint-watercolour-bg.jpg",
+      "title": "Mountain viewpoint",
+      "description": "Green hilltop looking out over rolling hills and misty blue mountains, with a curly tree on the right.",
+      "time_of_day": "day",
+      "tags": [
+        "mountains",
+        "hills",
+        "view",
+        "tree"
+      ],
+      "avatar_position": {
+        "x": 0.35,
+        "y": 0.84,
+        "scale": 0.3
+      },
+      "ending": false
+    },
+    {
+      "id": "storybook-village",
+      "file": "14-storybook-village-watercolour-bg.jpg",
+      "url": "/static/backgrounds/14-storybook-village-watercolour-bg.jpg",
+      "title": "Storybook village",
+      "description": "Cosy village of little cottages with thatched and tiled roofs, warm windows and a cobbled lane, with a wooden fence in front.",
+      "time_of_day": "day",
+      "tags": [
+        "village",
+        "cottages",
+        "houses",
+        "lane"
+      ],
+      "avatar_position": {
+        "x": 0.5,
+        "y": 0.8,
+        "scale": 0.28
+      },
+      "ending": false
+    },
+    {
+      "id": "castle-courtyard",
+      "file": "15-castle-courtyard-watercolour-bg.jpg",
+      "url": "/static/backgrounds/15-castle-courtyard-watercolour-bg.jpg",
+      "title": "Castle courtyard",
+      "description": "Friendly castle courtyard with pointed towers and little flags, an arched gate, a fountain and pots of flowers.",
+      "time_of_day": "day",
+      "tags": [
+        "castle",
+        "towers",
+        "flags",
+        "fountain",
+        "courtyard"
+      ],
+      "avatar_position": {
+        "x": 0.4,
+        "y": 0.84,
+        "scale": 0.3
+      },
+      "ending": false
+    },
+    {
+      "id": "cozy-cottage",
+      "file": "16-cozy-cottage-watercolour-bg.jpg",
+      "url": "/static/backgrounds/16-cozy-cottage-watercolour-bg.jpg",
+      "title": "Cosy cottage",
+      "description": "Warm cottage room with a crackling fireplace, a soft armchair with a knitted blanket, a teapot, shelves and a round rug.",
+      "time_of_day": "indoor-evening",
+      "tags": [
+        "cottage",
+        "fireplace",
+        "armchair",
+        "home",
+        "warm"
+      ],
+      "avatar_position": {
+        "x": 0.52,
+        "y": 0.84,
+        "scale": 0.32
+      },
+      "ending": true
+    },
+    {
+      "id": "magical-library",
+      "file": "17-magical-library-watercolour-bg.jpg",
+      "url": "/static/backgrounds/17-magical-library-watercolour-bg.jpg",
+      "title": "Magical library",
+      "description": "Round library with tall shelves full of books, a rolling ladder, a hanging lantern, a moonlit window and books floating in the air.",
+      "time_of_day": "indoor-night",
+      "tags": [
+        "library",
+        "books",
+        "ladder",
+        "lantern",
+        "magic"
+      ],
+      "avatar_position": {
+        "x": 0.4,
+        "y": 0.84,
+        "scale": 0.32
+      },
+      "ending": false
+    },
+    {
+      "id": "starry-observatory",
+      "file": "18-starry-observatory-watercolour-bg.jpg",
+      "url": "/static/backgrounds/18-starry-observatory-watercolour-bg.jpg",
+      "title": "Starry observatory",
+      "description": "Observatory with an open dome showing the starry sky and a crescent moon, a brass telescope, a globe and star maps on a desk.",
+      "time_of_day": "night",
+      "tags": [
+        "stars",
+        "moon",
+        "telescope",
+        "globe",
+        "night sky"
+      ],
+      "avatar_position": {
+        "x": 0.5,
+        "y": 0.84,
+        "scale": 0.3
+      },
+      "ending": false
+    },
+    {
+      "id": "enchanted-treehouse",
+      "file": "19-enchanted-treehouse-watercolour-bg.jpg",
+      "url": "/static/backgrounds/19-enchanted-treehouse-watercolour-bg.jpg",
+      "title": "Enchanted treehouse",
+      "description": "Big leafy tree at dusk with a little wooden treehouse, a rope ladder and twinkling fairy lights in the branches.",
+      "time_of_day": "dusk",
+      "tags": [
+        "treehouse",
+        "tree",
+        "ladder",
+        "fairy lights"
+      ],
+      "avatar_position": {
+        "x": 0.3,
+        "y": 0.84,
+        "scale": 0.3
+      },
+      "ending": false
+    },
+    {
+      "id": "bedtime-bedroom",
+      "file": "20-peaceful-bedtime-bedroom-watercolour-bg.jpg",
+      "url": "/static/backgrounds/20-peaceful-bedtime-bedroom-watercolour-bg.jpg",
+      "title": "Bedtime bedroom",
+      "description": "Calm bedroom at night with a cosy bed and patchwork quilt, a bedside lamp, a window showing the moon and stars, a round rug and a small bookshelf.",
+      "time_of_day": "indoor-night",
+      "tags": [
+        "bedroom",
+        "bed",
+        "moon",
+        "stars",
+        "home"
+      ],
+      "avatar_position": {
+        "x": 0.68,
+        "y": 0.84,
+        "scale": 0.32
+      },
+      "ending": true
+    }
+  ]
+}
