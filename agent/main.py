@@ -321,10 +321,14 @@ async def session_start(request: Request):
     first = resume if isinstance(resume, str) and resume in SCENES else START  # invalid: ignored
     enter_scene(sess, first)
     SESSIONS[session_id] = sess
-    first_audio, first_challenge_audio = await asyncio.gather(  # first scene's audio is ready in the response
-        narration_path(sess, first), challenge_path(sess))
+    intro_text = (f"{STORY['title']}. Hello {name}! Are you ready for tonight's bedtime story? "
+                  "Snuggle in, and when you're ready, open the book.")  # read on the book cover
+    first_audio, first_challenge_audio, intro_audio = await asyncio.gather(  # ready in the response
+        narration_path(sess, first), challenge_path(sess),
+        voice(voice_tools.speak, intro_text, timeout=NARRATION_TIMEOUT))
     in_background(speak_all_narration(sess))         # the rest is generated while the child listens
     return {"session_id": session_id, "child_id": child_id, "avatar_url": None, "stars": 0,
+            "intro": {"text": intro_text, "audio_url": audio_url(request, intro_audio)},
             "scene": scene_payload(sess, request, first_audio, first_challenge_audio)}
 
 
