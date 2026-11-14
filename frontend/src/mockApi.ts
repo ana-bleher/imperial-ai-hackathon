@@ -30,7 +30,7 @@ export type Scene = {
 
 export type StartSessionResponse = {
   session_id: string;
-  child_id: number;
+  child_id: number | string;
   avatar_url: string | null;
   scene: Scene;
 };
@@ -698,9 +698,28 @@ export async function sendTurn(
   }
 }
 
+// The backend knows a child by the child_id it returned from /session/start (e.g. "mia-1"),
+// not by the app's local profile number. Remember that link per profile.
+export function rememberBackendChild(localId: number, backendId: string | number) {
+  try {
+    localStorage.setItem(`speakaboo-child-${localId}`, String(backendId));
+  } catch {
+    /* storage unavailable */
+  }
+}
+function backendChildId(localId: number): string | null {
+  try {
+    return localStorage.getItem(`speakaboo-child-${localId}`);
+  } catch {
+    return null;
+  }
+}
+
 export async function getProgress(child_id: number): Promise<ProgressResponse> {
   try {
-    return await requestJson<ProgressResponse>(`/progress/${child_id}`, undefined, TIMEOUTS.progress);
+    const backendId = backendChildId(child_id);
+    if (!backendId) throw new Error("No story played yet for this profile");
+    return await requestJson<ProgressResponse>(`/progress/${encodeURIComponent(backendId)}`, undefined, TIMEOUTS.progress);
   } catch {
     offlineDemo = true;
     return mockGetProgress(child_id);

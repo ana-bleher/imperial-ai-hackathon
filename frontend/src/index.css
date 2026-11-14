@@ -3714,3 +3714,264 @@ html.night .needs-practice-chip {
 /* Painted (fal) avatar */
 .painted-avatar { width: 100%; height: 100%; object-fit: contain; display: block; }
 .avatar-snapshot { position: absolute; left: -9999px; top: 0; width: 160px; height: 190px; pointer-events: none; }
+
+/* =================== Wave 1 =================== */
+
+/* 1. Picture fills its panel – no blue gaps (positions are mapped onto the cropped picture in code) */
+.story-screen .scene-art {
+  aspect-ratio: auto;
+  height: 52vh;
+  min-height: 300px;
+  width: 100%;
+  border-radius: 0;
+}
+.story-screen .scene-background { object-fit: cover; object-position: center; }
+@media (min-width: 700px) {
+  .story-screen { background: var(--cream); }
+  .story-screen .scene-art {
+    height: 100vh;
+    align-self: stretch;
+    border-radius: 0;
+  }
+}
+
+/* 2–4. Quiet page controls in the bottom corners of the picture */
+.page-button {
+  position: absolute;
+  bottom: 18px;
+  z-index: 12;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(255, 251, 240, 0.28);
+  color: #fffaf0;
+  font-size: 13px;
+  font-weight: 700;
+  text-shadow: 0 1px 3px rgba(20, 26, 48, 0.55);
+  opacity: 0.6;
+  backdrop-filter: blur(4px);
+  transition: opacity 0.2s, background 0.2s;
+}
+.page-button:hover:not(:disabled),
+.page-button:focus-visible { opacity: 1; background: rgba(255, 251, 240, 0.45); }
+.page-button:disabled { opacity: 0; pointer-events: none; }
+.page-button--prev { left: 18px; }
+.page-button--next { right: 18px; }
+.scene-label { display: none; }
+.review-note {
+  margin: 14px 0 0;
+  font-size: 13px;
+  color: var(--ink-muted);
+}
+
+/* 3. Minimal secondary buttons */
+.manual-mic,
+.demo-toggle,
+.night-toggle {
+  opacity: 0.55;
+  transition: opacity 0.2s;
+}
+.manual-mic:hover, .demo-toggle:hover, .night-toggle:hover,
+.manual-mic.retry-ready { opacity: 1; }
+.manual-mic { background: transparent; border-color: rgba(27, 35, 64, 0.14); font-size: 13px; }
+.night-toggle {
+  padding: 5px 10px;
+  font-size: 12px;
+  background: rgba(27, 35, 64, 0.5);
+  border-color: rgba(255, 255, 255, 0.15);
+}
+.story-home { opacity: 0.6; }
+.story-home:hover { opacity: 1; }
+
+/* 5. Book cover */
+.story-start { position: relative; overflow: hidden; }
+.cover-art {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  filter: blur(2px) brightness(0.55) saturate(0.9);
+  transform: scale(1.04);
+}
+.book-cover {
+  position: relative;
+  z-index: 2;
+  max-width: 520px;
+  padding: 40px 36px;
+  border-radius: 28px;
+  background: rgba(20, 26, 48, 0.55);
+  border: 1px solid rgba(242, 193, 78, 0.35);
+  box-shadow: 0 30px 60px rgba(8, 10, 22, 0.45);
+  backdrop-filter: blur(6px);
+  text-align: center;
+  color: #fff6e5;
+}
+.book-cover h1 {
+  font-family: "Nunito", sans-serif;
+  font-size: clamp(30px, 4.4vw, 48px);
+  line-height: 1.08;
+  margin: 6px 0 4px;
+}
+.cover-eyebrow {
+  color: #f2c14e;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  font-weight: 800;
+  font-size: 12px;
+}
+.cover-pip {
+  width: 96px;
+  margin: 8px auto;
+  animation: pip-float 3.2s ease-in-out infinite;
+  filter: drop-shadow(0 0 14px rgba(255, 226, 122, 0.85));
+}
+.cover-pip svg { width: 100%; height: auto; }
+
+/* 6. Soft outlines so characters stand out from the painting */
+.scene-avatar-person,
+.scene-avatar-friend,
+.pip-flying,
+.pip-sleeping,
+.bed-avatar,
+.bed-pet {
+  filter: drop-shadow(0 0 2px #fffbe8) drop-shadow(0 0 1px rgba(0, 0, 0, 0.67));
+}
+.pip-flying { filter: drop-shadow(0 0 2px #fffbe8) drop-shadow(0 0 1px rgba(0,0,0,.67)) drop-shadow(0 0 10px rgba(255, 226, 122, 0.8)); }
+
+/* 7. Night mode = the night version of blue and cream: deep navy, warm cream, soft gold */
+html.night .cream-page,
+html.night .dashboard-page,
+html.night .story-controls,
+html.night .cream-page img,
+html.night .dashboard-page img,
+html.night .story-controls img,
+html.night .cream-page .avatar-stage,
+html.night .dashboard-page .avatar-stage,
+html.night .choice-icon-emoji,
+html.night .decision-cards-visible svg,
+html.night .needs-practice-chip {
+  filter: none;
+}
+html.night :is(.cream-page, .dashboard-page, .story-screen) {
+  --cream: #161d38;
+  --cream-deep: #202a4d;
+  --ink-muted: #b8b0a0;
+}
+html.night .cream-page,
+html.night .dashboard-page,
+html.night .story-controls,
+html.night .story-screen {
+  background: #161d38;
+  color: #f6ead2;
+}
+html.night .cream-page :is(h1, h2, h3, h4, p, strong, label, li),
+html.night .dashboard-page :is(h1, h2, h3, h4, p, strong, label, li),
+html.night .story-controls :is(h1, h2, h3, p, strong, span, label) {
+  color: #f6ead2;
+}
+html.night :is(.cream-page, .dashboard-page, .story-controls) :is(small, .eyebrow, .muted) {
+  color: #c9bfa9;
+}
+html.night :is(.cream-page, .dashboard-page, .story-controls) :is(article, [class*="card"], .guide-bubble, .auto-turn, .voice-choice-prompt, .decision-cards-visible button, .retry-hints button, .needs-practice, .needs-practice-chip, .speakaboo-helped, .helped-timeline li, .demo-panel) {
+  background: #202a4d;
+  border-color: rgba(242, 193, 78, 0.22);
+  color: #f6ead2;
+}
+html.night .narration p span.active { background: rgba(242, 193, 78, 0.28); color: #fff3d6; }
+html.night .narration button,
+html.night .primary-button { background: #f2c14e; color: #1b2340; }
+html.night .narration button svg { color: #1b2340; }
+html.night .manual-mic { color: #f6ead2; border-color: rgba(246, 234, 210, 0.2); }
+html.night .story-progress i { background: #3a4570; }
+html.night .story-progress i.active { background: #f2c14e; }
+html.night .needs-practice-chip { color: #f2c14e; }
+
+/* =================== Round 2 fixes =================== */
+
+/* Whole picture, never cropped; a blurred copy fills the rest of the panel */
+.story-screen .scene-background { object-fit: contain; }
+.scene-background-fill {
+  position: absolute;
+  inset: -20px;
+  width: calc(100% + 40px);
+  height: calc(100% + 40px);
+  object-fit: cover;
+  filter: blur(18px) brightness(0.85) saturate(0.9);
+  z-index: 0;
+}
+.story-screen .scene-background { z-index: 1; }
+
+/* Page turns go forward like a book: the new page swings in from the right edge */
+.scene-background.loaded {
+  transform-origin: right center;
+  animation-name: page-turn-forward;
+}
+@keyframes page-turn-forward {
+  0% { transform: rotateY(75deg); opacity: 0; filter: brightness(0.7); }
+  60% { opacity: 1; }
+  100% { transform: rotateY(0); opacity: 1; filter: brightness(1); }
+}
+
+/* Page buttons live under the story text: previous bottom-left, turn page bottom-right */
+.page-nav {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-top: auto;
+  padding-top: 18px;
+}
+.page-nav .page-button {
+  position: static;
+  background: transparent;
+  color: var(--navy);
+  text-shadow: none;
+  border: 1px solid rgba(27, 35, 64, 0.14);
+  backdrop-filter: none;
+  opacity: 0.55;
+}
+.page-nav .page-button--next { margin-left: auto; }
+.page-nav .page-button:hover:not(:disabled) { opacity: 1; background: rgba(95, 179, 168, 0.12); }
+.page-nav .page-button:disabled { opacity: 0; pointer-events: none; }
+html.night .page-nav .page-button { color: #f6ead2; border-color: rgba(246, 234, 210, 0.2); }
+@media (min-width: 700px) {
+  .story-screen .story-controls { min-height: 100vh; }
+}
+
+
+/* Login tagline readable on navy (day and night) */
+.login-hero p { color: #fff6e5; font-weight: 600; }
+.login-hero small { color: #d9cfbd; }
+
+/* Bigger, sparkling stars */
+.star-field i {
+  width: calc(var(--s) * 1.8);
+  height: calc(var(--s) * 1.8);
+  background: radial-gradient(circle, #fff6d0 0%, #f2c14e 45%, rgba(242, 193, 78, 0) 72%);
+  box-shadow: 0 0 8px rgba(242, 193, 78, 0.55);
+  opacity: 0.85;
+  animation: sparkle 3.2s var(--d) ease-in-out infinite;
+}
+.star-field i:nth-child(4n) {
+  /* a few four-point "twinkle" stars */
+  border-radius: 0;
+  background: #fff3c4;
+  clip-path: polygon(50% 0, 60% 40%, 100% 50%, 60% 60%, 50% 100%, 40% 60%, 0 50%, 40% 40%);
+  width: calc(var(--s) * 3);
+  height: calc(var(--s) * 3);
+  box-shadow: none;
+}
+@keyframes sparkle {
+  0%, 100% { opacity: 0.85; transform: scale(1) rotate(0deg); }
+  40% { opacity: 0.25; transform: scale(0.6) rotate(20deg); }
+  55% { opacity: 1; transform: scale(1.25) rotate(35deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .star-field i { animation: none; }
+}
+
+.painted-character { width: 100%; height: auto; display: block; }

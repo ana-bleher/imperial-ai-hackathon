@@ -9,8 +9,9 @@ import {
   type MockChildProfile,
   type ProgressResponse,
   type Scene,
+  rememberBackendChild,
 } from "./mockApi";
-import { SEND_AUDIO } from "./config";
+import { API_URL, SEND_AUDIO } from "./config";
 
 type Screen = "login" | "children" | "create" | "story" | "goodnight" | "dashboard";
 type Child = MockChildProfile;
@@ -243,6 +244,15 @@ async function avatarToPng(container: HTMLElement | null): Promise<string | null
     return null;
   }
 }
+
+// Watercolour versions of Pip and the pets (painted once on fal by Kiko) live in
+// frontend/public/characters/. Until a file exists, the drawn version is shown instead.
+function PaintedOr({ src, children }: { src: string; children: React.ReactNode }) {
+  const [failed, setFailed] = useState(false);
+  if (failed) return <>{children}</>;
+  return <img className="painted-character" src={src} alt="" onError={() => setFailed(true)} />;
+}
+const petArt = (animal: string) => `/characters/pet-${animal.toLowerCase()}.png`;
 
 // Pip, the tiny firefly with a lantern, who guides the story.
 function Pip({ sleeping = false }: { sleeping?: boolean }) {
@@ -1339,6 +1349,14 @@ function StoryScene({
   const [loadedImage, setLoadedImage] = useState<string | null>(null);
   const [titleCard, setTitleCard] = useState(false);
   const [paintedAvatar, setPaintedAvatar] = useState<string | null>(null);
+  const sessionPromiseRef = useRef<Promise<Awaited<ReturnType<typeof startSession>>> | null>(null);
+  // Pages already read, so "Previous page" can go back without asking the backend.
+  const historyRef = useRef<Scene[]>([]);
+  const readingStoryRef = useRef(false); // true only while the page's story text is being read
+  const [reviewIndex, setReviewIndex] = useState<number | null>(null);
+  // The picture fills the whole panel (object-fit: cover); we map story coordinates onto it.
+  const sceneArtRef = useRef<HTMLElement | null>(null);
+  const [artSize, setArtSize] = useState({ w: 0, h: 0 });
   const avatarSnapshotRef = useRef<HTMLDivElement | null>(null);
   const [failedImage, setFailedImage] = useState<string | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -1355,6 +1373,9 @@ function StoryScene({
 
   const setCurrentScene = (nextScene: Scene) => {
     if (nextScene.avatar_url) setPaintedAvatar(nextScene.avatar_url);
+    const history = historyRef.current;
+    if (history[history.length - 1]?.id !== nextScene.id) history.push(nextScene);
+    else history[history.length - 1] = nextScene;
     sceneRef.current = nextScene;
     setScene(nextScene);
   };
@@ -1523,10 +1544,12 @@ function StoryScene({
   const playNarration = (nextScene: Scene, onEnd: () => void) => {
     setPhase("narrating");
     setActiveSentence(0);
+    readingStoryRef.current = true;
     playAudioOrSpeech(
       nextScene.narration,
       nextScene.narration_audio_url,
       () => {
+        readingStoryRef.current = false;
         setActiveSentence(null);
         onEnd();
       },
@@ -1800,6 +1823,38 @@ function StoryScene({
     });
   };
 
+  // Starts the backend session (and wakes the server) while the cover is on screen.
+  const prepareSession = () => {
+    if (!sessionPromiseRef.current) {
+      sessionPromiseRef.current = (async () => {
+        const imagePng = await avatarToPng(avatarSnapshotRef.current);
+        return startSession({
+          child_name: child.name,
+          age: child.age,
+          pronouns: child.pronouns,
+          avatar: {
+            skin_tone: child.skin,
+            hair_style: child.hair,
+            hair_colour: child.hairColor,
+            outfit: child.outfit,
+            pet: child.friend,
+            ...(imagePng ? { image_png: imagePng } : {}),
+          },
+        });
+      })();
+    }
+    return sessionPromiseRef.current;
+  };
+
+  useEffect(() => {
+    if (!started) {
+      const timer = window.setTimeout(() => void prepareSession(), 300);
+      return () => window.clearTimeout(timer);
+    }
+    return undefined;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const startExperience = async () => {
     if (started) return;
     setStarted(true);
@@ -1824,31 +1879,16 @@ function StoryScene({
           .catch(() => setMicBlocked(true))
       : Promise.resolve(setMicBlocked(true));
 
-    const imagePng = await avatarToPng(avatarSnapshotRef.current);
-    const response = await startSession({
-      child_name: child.name,
-      age: child.age,
-      pronouns: child.pronouns,
-      avatar: {
-        skin_tone: child.skin,
-        hair_style: child.hair,
-        hair_colour: child.hairColor,
-        outfit: child.outfit,
-        pet: child.friend,
-        ...(imagePng ? { image_png: imagePng } : {}),
-      },
-    });
+    const response = await (sessionPromiseRef.current ?? prepareSession());
     if (response.avatar_url) setPaintedAvatar(response.avatar_url);
+    if (!isOfflineDemo()) rememberBackendChild(child.id, response.child_id);
     window.clearTimeout(wakingTimer);
     setOfflineDemo(isOfflineDemo());
     await microphone;
     sessionRef.current = response.session_id;
     setSessionId(response.session_id);
-    // The narrator reads the title page ("Pip's Gentle Journey Home. Hello Mia! Are you ready…")
-    // while it is on screen, then the page turns to the first scene.
-    setTitleCard(true);
+    // The cover was the title page; the narrator opens with the title and a hello.
     narrateScene(response.scene);
-    window.setTimeout(() => setTitleCard(false), 5200);
   };
 
   // Parents/children can turn the page themselves: during the story it skips to the
@@ -1857,7 +1897,10 @@ function StoryScene({
     const current = sceneRef.current;
     const currentSession = sessionRef.current;
     if (!current || !currentSession || sending) return;
-    if (phase === "narrating") {
+
+    // 1. Still reading the story text -> skip to Pip's question.
+    if (readingStoryRef.current) {
+      readingStoryRef.current = false;
       speechRunRef.current += 1;
       window.speechSynthesis?.cancel();
       stopAllAudio();
@@ -1868,10 +1911,31 @@ function StoryScene({
       else askChallenge(current);
       return;
     }
-    if (current.choices) {
-      setShowChoices(true); // at a choice the child picks a card instead
+
+    // 2. The answer was already right and the next page is waiting -> go there now.
+    if (pendingScene) {
+      if (advanceTimerRef.current !== null) window.clearTimeout(advanceTimerRef.current);
+      advanceTimerRef.current = null;
+      speechRunRef.current += 1;
+      window.speechSynthesis?.cancel();
+      stopAllAudio();
+      narrateScene(pendingScene);
       return;
     }
+
+    // 3. At a choice the story can't guess the path: show the picture cards.
+    if (current.choices) {
+      clearChoiceTimer();
+      setShowChoices(true);
+      setFeedback("miss");
+      setFeedbackCopy("Pick a path first: tap a picture!");
+      return;
+    }
+
+    // 4. Otherwise move on (logged like an answer).
+    speechRunRef.current += 1;
+    window.speechSynthesis?.cancel();
+    stopAllAudio();
     cancelRecording();
     clearChoiceTimer();
     setSending(true);
@@ -1883,6 +1947,51 @@ function StoryScene({
     } finally {
       setSending(false);
     }
+  };
+
+  const stopEverything = () => {
+    speechRunRef.current += 1;
+    window.speechSynthesis?.cancel();
+    stopAllAudio();
+    audioRef.current?.pause();
+    cancelRecording();
+    clearChoiceTimer();
+    setActiveSentence(null);
+  };
+
+  const readPage = (page: Scene) => {
+    playAudioOrSpeech(page.narration, page.narration_audio_url, () => undefined);
+  };
+
+  const goPreviousPage = () => {
+    const live = historyRef.current.length - 1;
+    const from = reviewIndex ?? live;
+    if (from <= 0) return;
+    stopEverything();
+    setReviewIndex(from - 1);
+    readPage(historyRef.current[from - 1]);
+  };
+
+  const goNextPage = () => {
+    if (reviewIndex === null) {
+      void turnPageManually();
+      return;
+    }
+    stopEverything();
+    const live = historyRef.current.length - 1;
+    const next = reviewIndex + 1;
+    if (next < live) {
+      setReviewIndex(next);
+      readPage(historyRef.current[next]);
+      return;
+    }
+    // back to where the child was: ask the current question again
+    setReviewIndex(null);
+    const current = sceneRef.current;
+    if (!current) return;
+    if (current.index === current.total) setPhase("ready");
+    else if (current.choices) askDecision(current);
+    else askChallenge(current);
   };
 
   const recordResult = async (result: "success" | "miss") => {
@@ -1970,19 +2079,20 @@ function StoryScene({
         <div ref={avatarSnapshotRef} className="avatar-snapshot" aria-hidden="true">
           <Avatar child={child} />
         </div>
+        <img className="cover-art" src={`${API_URL}/static/scenes/s1.jpg`} alt="" />
         <StarField count={28} />
-        <div className="story-start-content">
-          <Logo />
-          <div className="start-book" aria-hidden="true">
-            <Icon name="book" size={58} />
+        <div className="story-start-content book-cover">
+          <small className="cover-eyebrow">Tonight's bedtime story</small>
+          <h1>Pip's Gentle Journey Home</h1>
+          <div className="cover-pip" aria-hidden="true">
+            <Pip />
           </div>
-          <h1>Ready for an adventure?</h1>
-          <p>One tap lets Speakaboo read, listen, and take turns with {child.name}.</p>
+          <p>A story for {child.name}</p>
           <button
             className="primary-button big start-story-button"
             onClick={() => void startExperience()}
           >
-            <Icon name="play" size={24} /> Start the story
+            <Icon name="book" size={22} /> Open the book
           </button>
           <small>
             <Icon name="lock" size={12} /> A grown-up may need to allow the microphone
@@ -2005,7 +2115,22 @@ function StoryScene({
     );
   }
 
-  const narrationSentences = getSentences(scene.narration);
+  const viewScene = reviewIndex !== null ? historyRef.current[reviewIndex] ?? scene : scene;
+  const reviewing = reviewIndex !== null;
+  const narrationSentences = getSentences(viewScene.narration);
+  // Where the picture actually is inside the panel (object-fit: cover crops the overflow).
+  const IMG_RATIO = 1600 / 893;
+  const frame = (() => {
+    const { w, h } = artSize;
+    if (!w || !h) return null;
+    const renderedW = w / h > IMG_RATIO ? h * IMG_RATIO : w;
+    const renderedH = renderedW / IMG_RATIO;
+    return { w: renderedW, h: renderedH, x: (w - renderedW) / 2, y: (h - renderedH) / 2 };
+  })();
+  const atX = (fx: number) => (frame ? `${frame.x + fx * frame.w}px` : `${fx * 100}%`);
+  const atY = (fy: number) => (frame ? `${frame.y + fy * frame.h}px` : `${fy * 100}%`);
+  const ofH = (f: number) => (frame ? `${f * frame.h}px` : `${f * 100}%`);
+  const ofW = (f: number) => (frame ? `${f * frame.w}px` : `${f * 100}%`);
   const turnStatus =
     phase === "thinking"
       ? "Pip is thinking…"
@@ -2015,34 +2140,47 @@ function StoryScene({
 
   return (
     <main className="story-screen page-enter">
-      <section className="scene-art" aria-label={`Story scene ${scene.index}`}>
-        {scene.image_url && failedImage !== scene.image_url && (
+      <section
+        className="scene-art"
+        aria-label={`Story scene ${viewScene.index}`}
+        ref={(node) => {
+          if (!node || sceneArtRef.current === node) return;
+          sceneArtRef.current = node;
+          const measure = () => setArtSize({ w: node.clientWidth, h: node.clientHeight });
+          measure();
+          new ResizeObserver(measure).observe(node);
+        }}
+      >
+        {viewScene.image_url && failedImage !== viewScene.image_url && (
+          <img className="scene-background-fill" src={viewScene.image_url} alt="" aria-hidden="true" />
+        )}
+        {viewScene.image_url && failedImage !== viewScene.image_url && (
           <img
-            key={scene.image_url}
-            className={`scene-background ${loadedImage === scene.image_url ? "loaded" : ""}`}
-            src={scene.image_url}
+            key={viewScene.image_url}
+            className={`scene-background ${loadedImage === viewScene.image_url ? "loaded" : ""}`}
+            src={viewScene.image_url}
             alt=""
             ref={(img) => {
               // Cached pictures can finish before React attaches onLoad.
-              if (img?.complete && img.naturalWidth > 0 && loadedImage !== scene.image_url)
-                setLoadedImage(scene.image_url);
+              if (img?.complete && img.naturalWidth > 0 && loadedImage !== viewScene.image_url)
+                setLoadedImage(viewScene.image_url);
             }}
-            onLoad={() => setLoadedImage(scene.image_url)}
-            onError={() => setFailedImage(scene.image_url)}
+            onLoad={() => setLoadedImage(viewScene.image_url)}
+            onError={() => setFailedImage(viewScene.image_url)}
           />
         )}
         <button className="story-home" onClick={onExit} aria-label="Leave story">
           <Icon name="home" size={21} />
         </button>
-        {BED_SPOTS[scene.id] ? (
+        {BED_SPOTS[viewScene.id] ? (
           <>
             <WatercolorFilter />
             <div
               className="bed-avatar"
               style={{
-                left: `${BED_SPOTS[scene.id].x * 100}%`,
-                top: `${BED_SPOTS[scene.id].y * 100}%`,
-                width: `${BED_SPOTS[scene.id].width * 100}%`,
+                left: atX(BED_SPOTS[viewScene.id].x),
+                top: atY(BED_SPOTS[viewScene.id].y),
+                width: ofW(BED_SPOTS[viewScene.id].width),
               }}
             >
               <div className="bed-avatar-body">
@@ -2059,36 +2197,43 @@ function StoryScene({
               className="bed-pet"
               aria-hidden="true"
               style={{
-                left: `${BED_SPOTS[scene.id].pet.x * 100}%`,
-                top: `${BED_SPOTS[scene.id].pet.y * 100}%`,
-                height: `${BED_SPOTS[scene.id].pet.height * 100}%`,
+                left: atX(BED_SPOTS[viewScene.id].pet.x),
+                top: atY(BED_SPOTS[viewScene.id].pet.y),
+                height: ofH(BED_SPOTS[viewScene.id].pet.height),
               }}
             >
-              <AnimalIllustration animal={child.friend} />
+              <PaintedOr src={petArt(child.friend)}>
+                <AnimalIllustration animal={child.friend} />
+              </PaintedOr>
             </div>
             <div
               className="pip-sleeping"
               style={{
-                left: `${BED_SPOTS[scene.id].pip.x * 100}%`,
-                top: `${BED_SPOTS[scene.id].pip.y * 100}%`,
+                left: atX(BED_SPOTS[viewScene.id].pip.x),
+                width: ofW(0.042),
+                top: atY(BED_SPOTS[viewScene.id].pip.y),
               }}
             >
-              <Pip sleeping />
+              <PaintedOr src="/characters/pip-sleeping.png">
+                <Pip sleeping />
+              </PaintedOr>
             </div>
           </>
         ) : (
         <div
           className="scene-avatar"
           style={{
-            left: `${scene.avatar_position.x * 100}%`,
-            top: `${scene.avatar_position.y * 100}%`,
-            height: `${scene.avatar_position.scale * 100}%`,
+            left: atX(viewScene.avatar_position.x),
+            top: atY(viewScene.avatar_position.y),
+            height: ofH(viewScene.avatar_position.scale),
           }}
         >
           <WatercolorFilter />
           <span className="avatar-feet-shadow" aria-hidden="true" />
           <div className="pip-flying">
-            <Pip />
+            <PaintedOr src="/characters/pip.png">
+              <Pip />
+            </PaintedOr>
           </div>
           <div className="scene-avatar-person">
             {paintedAvatar ? (
@@ -2098,11 +2243,13 @@ function StoryScene({
             )}
           </div>
           <div className="scene-avatar-friend" aria-hidden="true">
-            <AnimalIllustration animal={child.friend} />
+            <PaintedOr src={petArt(child.friend)}>
+              <AnimalIllustration animal={child.friend} />
+            </PaintedOr>
           </div>
         </div>
         )}
-        <span className="scene-label">A Speakaboo story</span>
+
         {titleCard && (
           <div className="title-card" aria-live="polite">
             <span className="title-card-moon" aria-hidden="true">🌙</span>
@@ -2123,7 +2270,7 @@ function StoryScene({
             ))}
           </div>
         </div>
-        <div className="narration page-turn-text" key={`text-${scene.id}`}>
+        <div className="narration page-turn-text" key={`text-${viewScene.id}`}>
           <button
             aria-label={playing ? "Pause narration" : "Play narration"}
             onClick={toggleNarration}
@@ -2141,6 +2288,11 @@ function StoryScene({
             ))}
           </p>
         </div>
+        {reviewing && (
+          <p className="review-note">Looking back at an earlier page · tap “Turn page” to continue</p>
+        )}
+        {!reviewing && (
+        <>
         {!isFinalScene && phase !== "narrating" && (
           <div className={`guide-bubble ${feedback}`}>
             <span className="guide-face">
@@ -2250,15 +2402,6 @@ function StoryScene({
         )}
         {!isFinalScene && (
           <button
-            className="next-page-button"
-            onClick={() => void turnPageManually()}
-            disabled={sending || phase === "thinking"}
-          >
-            {phase === "narrating" ? "Skip to question" : "Next page"} <span aria-hidden="true">›</span>
-          </button>
-        )}
-        {!isFinalScene && (
-          <button
             className={`manual-mic ${retrying ? "retry-ready" : ""}`}
             disabled={micBlocked || phase === "narrating" || phase === "thinking" || sending}
             onClick={() => startListening(atDecision ? "decision" : "challenge")}
@@ -2319,6 +2462,28 @@ function StoryScene({
             )}
           </>
         )}
+        </>
+        )}
+        <nav className="page-nav" aria-label="Pages">
+        <button
+          className="page-button page-button--prev"
+          onClick={goPreviousPage}
+          disabled={(reviewIndex ?? historyRef.current.length - 1) <= 0 || sending}
+          aria-label="Previous page"
+        >
+          ‹ <span>Previous page</span>
+        </button>
+        {!(isFinalScene && !reviewing) && (
+          <button
+            className="page-button page-button--next"
+            onClick={goNextPage}
+            disabled={sending || phase === "thinking"}
+            aria-label="Turn page"
+          >
+            <span>Turn page</span> ›
+          </button>
+        )}
+        </nav>
       </section>
     </main>
   );
