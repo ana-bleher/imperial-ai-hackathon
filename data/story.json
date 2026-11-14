@@ -61,8 +61,8 @@
       "narration": "'The sun!' said Pip, and the flowers seemed to smile. The path went on until it reached a quiet river. Across it, Pip's blue flowers glowed. A bridge with tiny bells stood on one side, and a little boat waited on the other. 'Bridge or boat?' Pip asked.",
       "image_prompt": "Soft watercolor children's picture-book background, wide landscape. Calm sparkling river at golden dusk. On the left, a sturdy low wooden bridge decorated with tiny hanging bells. On the right, a small safe wooden boat with soft cushions moored by the bank. Both options equally prominent and easy for a young child to distinguish. Pale blue glowing flowers on far bank. Empty foreground for avatar. No people, no animals, no insects, no text.",
       "avatar_position": {
-        "x": 0.48,
-        "y": 0.69,
+        "x": 0.36,
+        "y": 0.93,
         "scale": 0.3
       },
       "decision": {
@@ -107,9 +107,9 @@
       "narration": "{CHILD_NAME} chose the boat. They climbed in, and {CHILD_NAME} paddled slowly, making circles in the water. A silver fish swam past. 'The river is singing,' Pip whispered, as they reached the far bank.",
       "image_prompt": "Soft watercolor children's picture-book background, wide landscape. Peaceful view along a slow river at dusk, small wooden boat with soft cushions in the foreground, gentle round ripples and subtle silver fish shape just under the water, pale blue flowers on distant bank. Leave clear space in boat for separately overlaid avatar. No people, no animals except a subtle fish beneath the water, no insects, no text.",
       "avatar_position": {
-        "x": 0.5,
-        "y": 0.66,
-        "scale": 0.28
+        "x": 0.47,
+        "y": 0.7,
+        "scale": 0.24
       },
       "next": "s5b",
       "challenge": {
@@ -124,9 +124,9 @@
       "narration": "On the other side, Pip flew to the biggest blue flower and curled up inside. 'Thank you for bringing me home,' Pip whispered. The bridge bells chimed once more, and the first stars came out. It was time for {CHILD_NAME} and {PET} to go home too. Soon {CHILD_NAME} was cosy in bed, with Pip glowing softly by the window. Goodnight.",
       "image_prompt": "Soft watercolor children's picture-book background, wide landscape. Cosy warm bedroom at night, soft cream blanket on a small bed, stars through window, tiny decorative bell hanging by the window as a reminder of the bridge, faint blue flower on bedside table, soft lamplight. Open visual space for overlaid avatar. No people, no animals, no insects, no text.",
       "avatar_position": {
-        "x": 0.37,
-        "y": 0.68,
-        "scale": 0.29
+        "x": 0.64,
+        "y": 0.93,
+        "scale": 0.32
       },
       "next": null,
       "challenge": {
@@ -141,9 +141,9 @@
       "narration": "On the far bank, Pip flew to the biggest blue flower and curled up inside. 'Thank you for bringing me home,' Pip whispered. The river's gentle ripples sounded like a lullaby, and the first stars came out. It was time for {CHILD_NAME} and {PET} to go home too. Soon {CHILD_NAME} was cosy in bed, with Pip glowing softly nearby. Goodnight.",
       "image_prompt": "Soft watercolor children's picture-book background, wide landscape. Cosy warm bedroom at night with cream blanket on a little bed, silver moonlight through window, gentle circular ripple pattern reflected on wall and a small blue flower on bedside table, calm blue and cream palette. Clear visual space for overlaid avatar. No people, no animals, no insects, no text.",
       "avatar_position": {
-        "x": 0.38,
-        "y": 0.68,
-        "scale": 0.29
+        "x": 0.42,
+        "y": 0.94,
+        "scale": 0.32
       },
       "next": null,
       "challenge": {

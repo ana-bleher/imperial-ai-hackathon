@@ -4312,3 +4312,88 @@ html.night .title-card { color: #fff6e5; }
   display: grid;
   place-items: center;
 }
+
+/* ---------- Paper page: the illustration is painted onto warm cream paper ---------- */
+.story-screen .scene-art {
+  background-color: #f4ead6;
+  background-image:
+    radial-gradient(ellipse at center, rgba(255, 252, 244, 0.55) 0%, rgba(255, 252, 244, 0) 60%),
+    radial-gradient(ellipse at center, transparent 55%, rgba(150, 118, 72, 0.18) 100%),
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240'><filter id='p'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.45  0 0 0 0 0.36  0 0 0 0 0.24  0 0 0 0.16 0'/></filter><rect width='100%' height='100%' filter='url(%23p)'/></svg>"),
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='600' height='600'><filter id='f'><feTurbulence type='fractalNoise' baseFrequency='0.012 0.04' numOctaves='2' seed='4'/><feColorMatrix values='0 0 0 0 0.55  0 0 0 0 0.45  0 0 0 0 0.30  0 0 0 0.12 0'/></filter><rect width='100%' height='100%' filter='url(%23f)'/></svg>");
+}
+.scene-background-fill { display: none; }
+.story-screen .scene-background {
+  position: absolute;
+  object-fit: fill;
+  mix-blend-mode: multiply; /* watercolour soaks into the paper */
+  -webkit-mask-image:
+    linear-gradient(to right, transparent 0%, #000 7%, #000 93%, transparent 100%),
+    linear-gradient(to bottom, transparent 0%, #000 9%, #000 91%, transparent 100%);
+  -webkit-mask-composite: source-in;
+  mask-image:
+    linear-gradient(to right, transparent 0%, #000 7%, #000 93%, transparent 100%),
+    linear-gradient(to bottom, transparent 0%, #000 9%, #000 91%, transparent 100%);
+  mask-composite: intersect;
+}
+html.night .story-screen .scene-art { filter: brightness(0.86) saturate(0.95); }
+
+/* Paper page v2: the painting has soft, uneven watercolour edges that melt into the paper (no straight lines) */
+.story-screen .scene-background {
+  -webkit-mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1000 1000' preserveAspectRatio='none'><filter id='w' x='-20%' y='-20%' width='140%' height='140%'><feTurbulence type='fractalNoise' baseFrequency='0.015' numOctaves='4' seed='9'/><feDisplacementMap in='SourceGraphic' scale='70' xChannelSelector='R' yChannelSelector='G'/><feGaussianBlur stdDeviation='30'/></filter><rect x='55' y='65' width='890' height='870' rx='140' fill='white' filter='url(%23w)'/></svg>");
+  -webkit-mask-size: 100% 100%;
+  -webkit-mask-repeat: no-repeat;
+  -webkit-mask-composite: source-over;
+  mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1000 1000' preserveAspectRatio='none'><filter id='w' x='-20%' y='-20%' width='140%' height='140%'><feTurbulence type='fractalNoise' baseFrequency='0.015' numOctaves='4' seed='9'/><feDisplacementMap in='SourceGraphic' scale='70' xChannelSelector='R' yChannelSelector='G'/><feGaussianBlur stdDeviation='30'/></filter><rect x='55' y='65' width='890' height='870' rx='140' fill='white' filter='url(%23w)'/></svg>");
+  mask-size: 100% 100%;
+  mask-repeat: no-repeat;
+  mask-composite: add;
+}
+
+/* Bookshelf: books and their buttons sit above the shelf plank */
+.shelf-row { padding-bottom: 26px; }
+.bookcase .book { position: relative; z-index: 2; }
+.shelf-plank { z-index: 1; }
+
+/* Paper v3: brighter cream with visible grain, soft cloudy pulp and a few fibres */
+.story-screen .scene-art {
+  background-color: #fcf1d8;
+  background-image:
+    radial-gradient(ellipse at center, rgba(255, 250, 236, 0.5) 0%, rgba(255, 250, 236, 0) 65%),
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='600' height='600'><filter id='c'><feTurbulence type='fractalNoise' baseFrequency='0.018' numOctaves='3' seed='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.80  0 0 0 0 0.62  0 0 0 0 0.35  0 0 0 0.22 -0.08'/></filter><rect width='100%' height='100%' filter='url(%23c)'/><filter id='p'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' seed='5' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.45  0 0 0 0 0.34  0 0 0 0 0.18  0 0 0 1.1 -0.5'/></filter><rect width='100%' height='100%' filter='url(%23p)'/><filter id='f'><feTurbulence type='turbulence' baseFrequency='0.04 0.6' numOctaves='2' seed='8' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.62  0 0 0 0 0.50  0 0 0 0 0.32  0 0 0 0.8 -0.45'/></filter><rect width='100%' height='100%' filter='url(%23f)'/></svg>");
+  background-size: auto, 600px 600px;
+}
+
+/* Goodnight quilt: tucked over the body, head on the pillow side stays visible */
+.bed-blanket { display: none; }
+.bed-quilt {
+  position: absolute;
+  left: -8%;
+  width: 82%;
+  top: 22%;
+  height: 88%;
+  filter: drop-shadow(0 6px 8px rgba(80, 60, 30, 0.25));
+  overflow: visible;
+}
+
+/* Keep the avatar exactly as the child designed it (no colour-shifting watercolour filter) */
+.scene-avatar-person .avatar svg,
+.scene-avatar-friend svg,
+.bed-avatar-body .avatar svg,
+.bed-pet svg {
+  filter: none !important;
+}
+.scene-avatar-person,
+.scene-avatar-friend { opacity: 1; }
+
+/* Day mode: the paper is the same cream as the story panel, texture kept */
+.story-screen .scene-art {
+  background-color: var(--cream);
+  background-image:
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='600' height='600'><filter id='c'><feTurbulence type='fractalNoise' baseFrequency='0.018' numOctaves='3' seed='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.80  0 0 0 0 0.62  0 0 0 0 0.35  0 0 0 0.22 -0.08'/></filter><rect width='100%' height='100%' filter='url(%23c)'/><filter id='p'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' seed='5' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.45  0 0 0 0 0.34  0 0 0 0 0.18  0 0 0 1.1 -0.5'/></filter><rect width='100%' height='100%' filter='url(%23p)'/><filter id='f'><feTurbulence type='turbulence' baseFrequency='0.04 0.6' numOctaves='2' seed='8' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.62  0 0 0 0 0.50  0 0 0 0 0.32  0 0 0 0.8 -0.45'/></filter><rect width='100%' height='100%' filter='url(%23f)'/></svg>");
+  background-size: 600px 600px;
+}
+html.night .story-screen .scene-art { background-color: #f4e7cc; }
+
+/* In the boat: the pet sits up beside the child so it peeks over the side too */
+.scene-avatar.partly-hidden .scene-avatar-friend { bottom: 40%; }

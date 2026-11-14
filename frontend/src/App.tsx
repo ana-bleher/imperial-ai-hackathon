@@ -382,6 +382,16 @@ function Pip({ sleeping = false }: { sleeping?: boolean }) {
   );
 }
 
+// Where the child stands, checked against Kiko's pictures (feet position, fractions of the picture).
+// Overrides story.json where the default spot was in the river or on the bed.
+// `hidden`: share of the child (from the feet up) hidden behind something in the picture, e.g. the boat's side.
+const STAND_SPOTS: Record<string, { x: number; y: number; scale: number; hidden?: number }> = {
+  s3: { x: 0.36, y: 0.93, scale: 0.3 }, // on the grass bank, not in the river
+  s4b: { x: 0.47, y: 0.7, scale: 0.24, hidden: 0.4 }, // sitting in the boat: legs hidden behind its side
+  s5a: { x: 0.64, y: 0.93, scale: 0.32 }, // on the rug in front of the bed
+  s5b: { x: 0.42, y: 0.94, scale: 0.32 }, // on the rug in front of the bed
+};
+
 // Where the bed is in Kiko's two goodnight pictures (fractions of the picture).
 // The child lies tucked in with their head on the pillow; their animal friend sleeps on the rug.
 const BED_SPOTS: Record<
@@ -1535,7 +1545,7 @@ function StoryScene({
       onSentence?.(index);
       const utterance = new SpeechSynthesisUtterance(sentences[index]);
       utterance.lang = "en-GB";
-      utterance.rate = 0.84;
+      utterance.rate = 0.8;
       utterance.pitch = 1.04;
       utterance.volume = 0.95;
       utterance.onend = () => speakSentence(index + 1);
@@ -1594,6 +1604,7 @@ function StoryScene({
     }
 
     const audio = new Audio(audioUrl);
+    audio.playbackRate = 0.92; // a touch slower and calmer for bedtime (pitch is kept)
     LIVE_AUDIO.add(audio);
     audio.addEventListener("ended", () => LIVE_AUDIO.delete(audio));
     audioRef.current = audio;
@@ -1655,7 +1666,25 @@ function StoryScene({
       onSentence(index);
     };
     audio.onended = finish;
-    audio.onerror = () => fallBack(audio.error ?? new Error("Audio failed to load"));
+    let retries = 0;
+    audio.onerror = () => {
+      // The backend may still be generating this clip: try again for up to ~9s before giving up.
+      if (!complete && !started && retries < 6) {
+        retries += 1;
+        if (startTimeout !== null) window.clearTimeout(startTimeout);
+        startTimeout = window.setTimeout(() => {
+          if (!started) fallBack(new Error("Audio did not start"));
+        }, 3000);
+        window.setTimeout(() => {
+          if (complete) return;
+          audio.src = `${audioUrl}${audioUrl.includes("?") ? "&" : "?"}retry=${retries}`;
+          audio.load();
+          void audio.play().catch(() => undefined);
+        }, 1500);
+        return;
+      }
+      fallBack(audio.error ?? new Error("Audio failed to load"));
+    };
     startTimeout = window.setTimeout(() => {
       if (!started) fallBack(new Error("Audio did not start within 8 seconds"));
     }, 8000);
@@ -1939,11 +1968,18 @@ function StoryScene({
     setFeedbackCopy("");
     setRetrying(false);
     setShowChoices(false);
-    playNarration(nextScene, () => {
-      if (nextScene.index === nextScene.total) setPhase("ready");
-      else if (nextScene.choices) askDecision(nextScene);
-      else askChallenge(nextScene);
-    });
+    setPhase("narrating");
+    // Let the page finish turning (≈0.9s animation) before the narrator starts reading.
+    readingStoryRef.current = true; // "Turn page" during this pause skips to the question
+    const run = ++speechRunRef.current;
+    window.setTimeout(() => {
+      if (run !== speechRunRef.current) return; // something else started in the meantime
+      playNarration(nextScene, () => {
+        if (nextScene.index === nextScene.total) setPhase("ready");
+        else if (nextScene.choices) askDecision(nextScene);
+        else askChallenge(nextScene);
+      });
+    }, 1000);
   };
 
   // Starts the backend session (and wakes the server) while the cover is on screen.
@@ -1984,6 +2020,7 @@ function StoryScene({
           }
           // The narrator reads the cover: title + hello. Then the button invites the child in.
           const audio = new Audio(url);
+          audio.playbackRate = 0.92;
           introAudioRef.current = audio;
           LIVE_AUDIO.add(audio);
           audio.onplaying = () => {
@@ -2315,12 +2352,14 @@ function StoryScene({
         }}
       >
         {viewScene.image_url && failedImage !== viewScene.image_url && (
-          <img className="scene-background-fill" src={viewScene.image_url} alt="" aria-hidden="true" />
-        )}
-        {viewScene.image_url && failedImage !== viewScene.image_url && (
           <img
             key={viewScene.image_url}
             className={`scene-background ${loadedImage === viewScene.image_url ? "loaded" : ""}`}
+            style={
+              frame
+                ? { inset: "auto", left: frame.x, top: frame.y, width: frame.w, height: frame.h }
+                : undefined
+            }
             src={viewScene.image_url}
             alt=""
             ref={(img) => {
@@ -2335,83 +2374,56 @@ function StoryScene({
         <button className="story-home" onClick={onExit} aria-label="Leave story">
           <Icon name="home" size={21} />
         </button>
-        {BED_SPOTS[viewScene.id] ? (
-          <>
-            <WatercolorFilter />
+        {BED_SPOTS[viewScene.id] && (
+          <div
+            className="pip-sleeping"
+            style={{
+              left: atX(BED_SPOTS[viewScene.id].pip.x),
+              width: ofW(0.042),
+              top: atY(BED_SPOTS[viewScene.id].pip.y),
+            }}
+          >
+            <PaintedOr src="/characters/pip-sleeping.png">
+              <Pip sleeping />
+            </PaintedOr>
+          </div>
+        )}
+        {(() => {
+          const spot: { x: number; y: number; scale: number; hidden?: number } =
+            STAND_SPOTS[viewScene.id] ?? viewScene.avatar_position;
+          return (
             <div
-              className="bed-avatar"
+              className={`scene-avatar ${spot.hidden ? "partly-hidden" : ""}`}
               style={{
-                left: atX(BED_SPOTS[viewScene.id].x),
-                top: atY(BED_SPOTS[viewScene.id].y),
-                width: ofW(BED_SPOTS[viewScene.id].width),
+                left: atX(spot.x),
+                top: atY(spot.y),
+                height: ofH(spot.scale),
+                ...(spot.hidden ? { clipPath: `inset(-200% -200% ${spot.hidden * 100}% -200%)` } : {}),
               }}
             >
-              <div className="bed-avatar-body">
+              {!spot.hidden && <span className="avatar-feet-shadow" aria-hidden="true" />}
+              {!BED_SPOTS[viewScene.id] && (
+                <div className="pip-flying">
+                  <PaintedOr src="/characters/pip.png">
+                    <Pip />
+                  </PaintedOr>
+                </div>
+              )}
+              <div className="scene-avatar-person">
                 {paintedAvatar ? (
                   <img className="painted-avatar" src={paintedAvatar} alt={`${child.name}'s avatar`} />
                 ) : (
                   <Avatar child={child} />
                 )}
               </div>
-              <span className="bed-blanket" aria-hidden="true" />
-              <span className="bed-zzz" aria-hidden="true">z z z</span>
+              <div className="scene-avatar-friend" aria-hidden="true">
+                <PaintedOr src={petArt(child.friend)}>
+                  <AnimalIllustration animal={child.friend} />
+                </PaintedOr>
+              </div>
             </div>
-            <div
-              className="bed-pet"
-              aria-hidden="true"
-              style={{
-                left: atX(BED_SPOTS[viewScene.id].pet.x),
-                top: atY(BED_SPOTS[viewScene.id].pet.y),
-                height: ofH(BED_SPOTS[viewScene.id].pet.height),
-              }}
-            >
-              <PaintedOr src={petArt(child.friend)}>
-                <AnimalIllustration animal={child.friend} />
-              </PaintedOr>
-            </div>
-            <div
-              className="pip-sleeping"
-              style={{
-                left: atX(BED_SPOTS[viewScene.id].pip.x),
-                width: ofW(0.042),
-                top: atY(BED_SPOTS[viewScene.id].pip.y),
-              }}
-            >
-              <PaintedOr src="/characters/pip-sleeping.png">
-                <Pip sleeping />
-              </PaintedOr>
-            </div>
-          </>
-        ) : (
-        <div
-          className="scene-avatar"
-          style={{
-            left: atX(viewScene.avatar_position.x),
-            top: atY(viewScene.avatar_position.y),
-            height: ofH(viewScene.avatar_position.scale),
-          }}
-        >
-          <WatercolorFilter />
-          <span className="avatar-feet-shadow" aria-hidden="true" />
-          <div className="pip-flying">
-            <PaintedOr src="/characters/pip.png">
-              <Pip />
-            </PaintedOr>
-          </div>
-          <div className="scene-avatar-person">
-            {paintedAvatar ? (
-              <img className="painted-avatar" src={paintedAvatar} alt={`${child.name}'s avatar`} />
-            ) : (
-              <Avatar child={child} />
-            )}
-          </div>
-          <div className="scene-avatar-friend" aria-hidden="true">
-            <PaintedOr src={petArt(child.friend)}>
-              <AnimalIllustration animal={child.friend} />
-            </PaintedOr>
-          </div>
-        </div>
-        )}
+          );
+        })()}
 
         {titleCard && (
           <div className="title-card" aria-live="polite">
