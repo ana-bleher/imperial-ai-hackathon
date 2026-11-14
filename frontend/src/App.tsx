@@ -13,7 +13,7 @@ import {
 } from "./mockApi";
 import { API_URL, SEND_AUDIO } from "./config";
 
-type Screen = "login" | "children" | "create" | "story" | "goodnight" | "dashboard";
+type Screen = "login" | "children" | "create" | "library" | "story" | "goodnight" | "dashboard";
 type Child = MockChildProfile;
 
 function Icon({
@@ -253,6 +253,97 @@ function PaintedOr({ src, children }: { src: string; children: React.ReactNode }
   return <img className="painted-character" src={src} alt="" onError={() => setFailed(true)} />;
 }
 const petArt = (animal: string) => `/characters/pet-${animal.toLowerCase()}.png`;
+
+// ---------- Wording that fits the time of day (bedtime is the main use, but not the only one)
+type DayPart = "morning" | "afternoon" | "evening" | "night";
+function dayPart(date = new Date()): DayPart {
+  const h = date.getHours();
+  if (h >= 5 && h < 12) return "morning";
+  if (h >= 12 && h < 17) return "afternoon";
+  if (h >= 17 && h < 20) return "evening";
+  return "night";
+}
+function words(part: DayPart = dayPart()) {
+  const day = part === "morning" || part === "afternoon";
+  const when = part === "morning" ? "this morning" : part === "afternoon" ? "this afternoon" : "tonight";
+  return {
+    when,
+    greeting:
+      part === "morning"
+        ? "Good morning, little reader ☀️"
+        : part === "afternoon"
+          ? "Good afternoon, little reader 🌤️"
+          : part === "evening"
+            ? "Good evening! Story time 🌙"
+            : "Sleepy time soon 🌙 Shall we read a story?",
+    eyebrow: day ? "Story time" : "Bedtime is ready",
+    question: `Who’s reading ${when}?`,
+    storyLabel:
+      part === "morning"
+        ? "This morning’s story"
+        : part === "afternoon"
+          ? "A story for a quiet afternoon"
+          : "Tonight’s bedtime story",
+    cardPrefix: day ? "Today" : "Tonight",
+    endTitle: (name: string) => (day ? `The end! Well done, ${name}!` : `Goodnight, ${name}!`),
+    endEyebrow: day ? "Story complete" : "Story complete",
+    endButton: day ? "All done" : "All tucked in",
+    starsLabel: `Stars earned ${when}`,
+    report: `See ${when}’s grown-up report`.replace("this morning’s", "today’s").replace("this afternoon’s", "today’s"),
+    startButton: day ? "Start today’s story" : "Start tonight’s story",
+    shelfTitle: (name: string) => `What shall we read ${when}, ${name}?`,
+    latest: day ? "Today" : "Tonight",
+  };
+}
+
+// ---------- Each child's own reading history, kept on this device (survives backend redeploys)
+type StoryRecord = { at: string; stars: number; words: string[]; help: string[]; note?: string };
+const historyKey = (childId: number) => `speakaboo-history-${childId}`;
+function loadHistory(childId: number): StoryRecord[] {
+  try {
+    return JSON.parse(localStorage.getItem(historyKey(childId)) ?? "[]") as StoryRecord[];
+  } catch {
+    return [];
+  }
+}
+function saveHistory(childId: number, records: StoryRecord[]) {
+  try {
+    localStorage.setItem(historyKey(childId), JSON.stringify(records.slice(-60)));
+  } catch {
+    /* storage unavailable */
+  }
+}
+function recordStory(childId: number, stars: number) {
+  saveHistory(childId, [...loadHistory(childId), { at: new Date().toISOString(), stars, words: [], help: [] }]);
+}
+function addSummaryToLatest(childId: number, summary: NonNullable<ProgressResponse["summary"]>) {
+  const records = loadHistory(childId);
+  const last = records[records.length - 1];
+  if (!last) return;
+  last.words = summary.words_practised;
+  last.help = summary.needed_help;
+  last.note = summary.agent_note;
+  last.stars = Math.max(last.stars, summary.stars_tonight);
+  saveHistory(childId, records);
+}
+
+// Where each child stopped reading, so the bookshelf can offer "Continue".
+const resumeKey = (childId: number) => `speakaboo-resume-${childId}`;
+function savedPage(childId: number): string | null {
+  try {
+    return localStorage.getItem(resumeKey(childId));
+  } catch {
+    return null;
+  }
+}
+function savePage(childId: number, sceneId: string | null) {
+  try {
+    if (sceneId) localStorage.setItem(resumeKey(childId), sceneId);
+    else localStorage.removeItem(resumeKey(childId));
+  } catch {
+    /* storage unavailable */
+  }
+}
 
 // Pip, the tiny firefly with a lantern, who guides the story.
 function Pip({ sleeping = false }: { sleeping?: boolean }) {
@@ -564,15 +655,8 @@ function ChildrenScreen({
   const [managing, setManaging] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<Child | null>(null);
   const [parentGate, setParentGate] = useState<"manage" | "dashboard" | null>(null);
-  const hour = new Date().getHours();
-  const greeting =
-    hour >= 5 && hour < 12
-      ? "Good morning, little reader ☀️"
-      : hour >= 12 && hour < 17
-        ? "Good afternoon, little reader 🌤️"
-        : hour >= 17 && hour < 21
-          ? "Good evening! Story time 🌙"
-          : "Sleepy time soon 🌙 Shall we read a story?";
+  const copy = words();
+  const greeting = copy.greeting;
 
   const answerParentCheck = (answer: number) => {
     const destination = parentGate;
@@ -596,9 +680,9 @@ function ChildrenScreen({
       </header>
       <section className="chooser">
         <div className="section-heading">
-          <span className="eyebrow teal">Bedtime is ready</span>
+          <span className="eyebrow teal">{copy.eyebrow}</span>
           <h1>{greeting}</h1>
-          <p className="chooser-question">Who’s reading tonight?</p>
+          <p className="chooser-question">{copy.question}</p>
           <p className="chooser-help">
             {managing
               ? "Edit a profile or remove one you no longer need."
@@ -638,11 +722,15 @@ function ChildrenScreen({
                 <span className="child-name">{child.name}</span>
                 <span className="child-age">Age {child.age}</span>
                 <span className="child-progress">
-                  Night {child.chooser_progress?.night ?? 1} · ⭐{" "}
-                  {child.chooser_progress?.stars ?? 0} stars
+                  {(() => {
+                    const history = loadHistory(child.id);
+                    if (!history.length) return "Ready for a first story ✨";
+                    const total = history.reduce((sum, record) => sum + record.stars, 0);
+                    return `${history.length} ${history.length === 1 ? "story" : "stories"} · ⭐ ${total} stars`;
+                  })()}
                 </span>
                 <span className="child-tonight">
-                  Tonight: {child.tonight_story ?? "Pip’s Gentle Journey Home"}
+                  {copy.cardPrefix}: {child.tonight_story ?? "Pip’s Gentle Journey Home"}
                 </span>
                 {!managing && <span className="card-arrow">→</span>}
               </button>
@@ -1328,13 +1416,26 @@ type BrowserSpeechRecognition = {
 
 function StoryScene({
   child,
-  onFinish,
+  onFinish: onStoryFinished,
   onExit,
+  resumeSceneId = null,
 }: {
   child: Child;
-  onFinish: () => void;
+  onFinish: (stars: number) => void;
   onExit: () => void;
+  resumeSceneId?: string | null;
 }) {
+  const [stars, setStars] = useState(0);
+  const starsRef = useRef(0);
+  const updateStars = (value?: number) => {
+    if (typeof value !== "number") return;
+    starsRef.current = value;
+    setStars(value);
+  };
+  const onFinish = () => {
+    savePage(child.id, null); // story finished: next time starts from the beginning
+    onStoryFinished(starsRef.current);
+  };
   type TurnPhase = "ready" | "loading" | "narrating" | "listening" | "thinking" | "feedback";
   const [started, setStarted] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -1361,6 +1462,7 @@ function StoryScene({
   const sessionPromiseRef = useRef<Promise<Awaited<ReturnType<typeof startSession>>> | null>(null);
   const [coverInvite, setCoverInvite] = useState(false); // "Open the book" shimmers once the cover has been read
   const introAudioRef = useRef<HTMLAudioElement | null>(null);
+  const introPlayedRef = useRef(false); // the title + hello has started playing on the cover
   // Pages already read, so "Previous page" can go back without asking the backend.
   const historyRef = useRef<Scene[]>([]);
   const readingStoryRef = useRef(false); // true only while the page's story text is being read
@@ -1384,6 +1486,7 @@ function StoryScene({
 
   const setCurrentScene = (nextScene: Scene) => {
     if (nextScene.avatar_url) setPaintedAvatar(nextScene.avatar_url);
+    savePage(child.id, nextScene.index === nextScene.total ? null : nextScene.id);
     const history = historyRef.current;
     if (history[history.length - 1]?.id !== nextScene.id) history.push(nextScene);
     else history[history.length - 1] = nextScene;
@@ -1604,6 +1707,7 @@ function StoryScene({
   };
 
   const processDecisionResponse = (response: Awaited<ReturnType<typeof sendTurn>>) => {
+    updateStars(response.stars);
     if (response.retry) {
       handleRetry(response, "decision");
       return;
@@ -1628,6 +1732,7 @@ function StoryScene({
   };
 
   const processChallengeResponse = (response: Awaited<ReturnType<typeof sendTurn>>) => {
+    updateStars(response.stars);
     setStoryComplete(response.story_complete);
     setFeedback(response.result === "hit" ? "success" : "miss");
     setFeedbackCopy(response.feedback);
@@ -1858,6 +1963,7 @@ function StoryScene({
             pet: child.friend,
             ...(imagePng ? { image_png: imagePng } : {}),
           },
+          ...(resumeSceneId ? { resume_scene_id: resumeSceneId } : {}),
         });
       })();
     }
@@ -1880,6 +1986,9 @@ function StoryScene({
           const audio = new Audio(url);
           introAudioRef.current = audio;
           LIVE_AUDIO.add(audio);
+          audio.onplaying = () => {
+            introPlayedRef.current = true;
+          };
           audio.onended = () => !cancelled && setCoverInvite(true);
           audio.onerror = () => inviteSoon();
           void audio.play().catch(() => inviteSoon());
@@ -1920,6 +2029,7 @@ function StoryScene({
       : Promise.resolve(setMicBlocked(true));
 
     const response = await (sessionPromiseRef.current ?? prepareSession());
+    updateStars(response.stars);
     if (response.avatar_url) setPaintedAvatar(response.avatar_url);
     if (!isOfflineDemo()) rememberBackendChild(child.id, response.child_id);
     window.clearTimeout(wakingTimer);
@@ -1927,7 +2037,20 @@ function StoryScene({
     await microphone;
     sessionRef.current = response.session_id;
     setSessionId(response.session_id);
-    // The cover was the title page; the narrator opens with the title and a hello.
+    // If the child opened the book before the cover's welcome could play (the story was still
+    // being prepared), play the title + hello first, then the story. The welcome is never lost.
+    const intro = response.intro;
+    if (!introPlayedRef.current && intro?.audio_url) {
+      introPlayedRef.current = true;
+      setCurrentScene(response.scene);
+      setTitleCard(true);
+      setPhase("narrating");
+      playAudioOrSpeech(intro.text, intro.audio_url, () => {
+        setTitleCard(false);
+        narrateScene(response.scene);
+      });
+      return;
+    }
     narrateScene(response.scene);
   };
 
@@ -2122,7 +2245,7 @@ function StoryScene({
         <img className="cover-art" src={`${API_URL}/static/scenes/s1.jpg`} alt="" />
         <StarField count={84} />
         <div className="story-start-content book-cover">
-          <small className="cover-eyebrow">Tonight's bedtime story</small>
+          <small className="cover-eyebrow">{words().storyLabel}</small>
           <h1>Pip's Gentle Journey Home</h1>
           <div className="cover-pip" aria-hidden="true">
             <Pip />
@@ -2293,7 +2416,7 @@ function StoryScene({
         {titleCard && (
           <div className="title-card" aria-live="polite">
             <span className="title-card-moon" aria-hidden="true">🌙</span>
-            <small>Tonight's bedtime story</small>
+            <small>{words().storyLabel}</small>
             <h1>Pip's Gentle Journey Home</h1>
             <p>Are you ready for your story, {child.name}?</p>
           </div>
@@ -2302,7 +2425,8 @@ function StoryScene({
       <section className="story-controls">
         <div className="story-progress" aria-label={`Scene ${scene.index} of ${scene.total}`}>
           <span>
-            Scene {scene.index} of {scene.total}
+            Scene {viewScene.index} of {scene.total}
+            {stars > 0 && <b className="star-count"> · ⭐ {stars}</b>}
           </span>
           <div>
             {Array.from({ length: scene.total }, (_, i) => (
@@ -2353,7 +2477,7 @@ function StoryScene({
         )}
         {isFinalScene ? (
           <button className="primary-button story-next" onClick={onFinish}>
-            The end — goodnight!
+            {dayPart() === "morning" || dayPart() === "afternoon" ? "The end!" : "The end — goodnight!"}
           </button>
         ) : phase === "narrating" ? (
           <div className="auto-turn">
@@ -2529,12 +2653,106 @@ function StoryScene({
   );
 }
 
+const SHELF = [
+  { title: "Pip's Gentle Journey Home", cover: "/static/scenes/s1.jpg", locked: false },
+  { title: "The Sleepy Lighthouse", cover: null, locked: true },
+  { title: "Moon Garden Picnic", cover: null, locked: true },
+  { title: "Owl's Night Choir", cover: null, locked: true },
+];
+
+function Library({
+  child,
+  onRead,
+  onBack,
+}: {
+  child: Child;
+  onRead: (resumeSceneId: string | null) => void;
+  onBack: () => void;
+}) {
+  const resume = savedPage(child.id);
+  return (
+    <main className="app-shell cream-page library-page page-enter">
+      <header className="topbar">
+        <BackButton onClick={onBack} label="Children" />
+        <Logo compact />
+        <span />
+      </header>
+      <section className="library">
+        <span className="eyebrow">Bookshelf</span>
+        <h1>{words().shelfTitle(child.name)}</h1>
+        <div className="bookcase">
+          {[SHELF.slice(0, 2), SHELF.slice(2)].map((row, rowIndex) => (
+            <div className="shelf-row" key={rowIndex}>
+              {rowIndex === 0 ? (
+                <div className="spines" aria-hidden="true">
+                  <i style={{ background: "#c8746a", height: "78%" }} />
+                  <i style={{ background: "#6f8fb3", height: "88%" }} />
+                  <i style={{ background: "#e0b45a", height: "70%" }} />
+                </div>
+              ) : (
+                <span className="shelf-decor" aria-hidden="true">🪴</span>
+              )}
+              {row.map((book) => (
+                <article key={book.title} className={`book ${book.locked ? "locked" : ""}`}>
+                  <div className="book-3d">
+                    <div className="book-cover-art">
+                      {book.cover ? (
+                        <img src={`${API_URL}${book.cover}`} alt="" />
+                      ) : (
+                        <span className="book-lock" aria-hidden="true">🔒</span>
+                      )}
+                      <span className="book-title-on-cover">{book.title}</span>
+                      {!book.locked && (
+                        <span className="book-pip" aria-hidden="true">
+                          <Pip />
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  {book.locked ? (
+                    <small className="book-soon">Unlocks soon</small>
+                  ) : (
+                    <div className="book-actions">
+                      {resume && (
+                        <button className="primary-button compact" onClick={() => onRead(resume)}>
+                          Continue
+                        </button>
+                      )}
+                      <button
+                        className={resume ? "secondary-button compact" : "primary-button compact"}
+                        onClick={() => onRead(null)}
+                      >
+                        {resume ? "Start again" : "Read"}
+                      </button>
+                    </div>
+                  )}
+                </article>
+              ))}
+              {rowIndex === 0 ? (
+                <span className="shelf-decor" aria-hidden="true">🦉</span>
+              ) : (
+                <div className="spines" aria-hidden="true">
+                  <i style={{ background: "#8a6fb0", height: "84%" }} />
+                  <i style={{ background: "#5fb3a8", height: "74%" }} />
+                </div>
+              )}
+              <div className="shelf-plank" aria-hidden="true" />
+            </div>
+          ))}
+        </div>
+      </section>
+    </main>
+  );
+}
+
 function Goodnight({
   child,
+  stars,
   onHome,
   onDashboard,
 }: {
   child: Child;
+  stars: number;
   onHome: () => void;
   onDashboard: () => void;
 }) {
@@ -2546,22 +2764,26 @@ function Goodnight({
           <Icon name="moon" size={88} strokeWidth={1.2} />
         </div>
         <span className="eyebrow gold">Story complete</span>
-        <h1>Goodnight, {child.name}!</h1>
-        <p>You used your brave voice and helped every firefly find its way home.</p>
+        <h1>{words().endTitle(child.name)}</h1>
+        <p>You used your brave voice and helped Pip find the way home.</p>
         <div className="earned-card">
-          <span>Stars earned tonight</span>
+          <span>{words().starsLabel}</span>
           <div className="earned-stars">
-            <i>★</i>
-            <i>★</i>
-            <i>★</i>
+            {Array.from({ length: Math.min(Math.max(stars, 1), 10) }, (_, i) => (
+              <i key={i} style={{ animationDelay: `${i * 0.12}s` }}>
+                ★
+              </i>
+            ))}
           </div>
-          <b>3 bright stars</b>
+          <b>
+            {stars} bright {stars === 1 ? "star" : "stars"}
+          </b>
         </div>
         <button className="primary-button big" onClick={onHome}>
-          <Icon name="moon" size={21} /> All tucked in
+          <Icon name="moon" size={21} /> {words().endButton}
         </button>
         <button className="goodnight-link" onClick={onDashboard}>
-          See tonight’s grown-up report
+          {words().report}
         </button>
       </div>
       <div className="sleeping-hills" aria-hidden="true">
@@ -2585,24 +2807,108 @@ const parentActionLabels: Record<string, string> = {
 
 function Dashboard({
   childId,
+  kids = [],
+  onPickChild,
   onBack,
   onStart,
 }: {
   childId: number;
+  kids?: Child[];
+  onPickChild?: (id: number) => void;
   onBack: () => void;
   onStart: () => void;
 }) {
   const [progress, setProgress] = useState<ProgressResponse | null>(null);
 
+  const [liveData, setLiveData] = useState(false);
   useEffect(() => {
     let active = true;
+    setProgress(null);
     getProgress(childId).then((response) => {
-      if (active) setProgress(response);
+      if (!active) return;
+      const live = !isOfflineDemo();
+      setLiveData(live);
+      if (live && response.summary) addSummaryToLatest(childId, response.summary);
+      setProgress(response);
     });
     return () => {
       active = false;
     };
   }, [childId]);
+  const history = loadHistory(childId);
+  const kid = kids.find((item) => item.id === childId);
+  const childTabs = kids.length > 1 && onPickChild && (
+    <div className="child-tabs" role="tablist" aria-label="Choose a child">
+      {kids.map((item) => (
+        <button
+          key={item.id}
+          role="tab"
+          aria-selected={item.id === childId}
+          className={item.id === childId ? "active" : ""}
+          onClick={() => onPickChild(item.id)}
+        >
+          {item.name}
+        </button>
+      ))}
+    </div>
+  );
+  // Over time: this child's own stories on this device
+  const totalStars = history.reduce((sum, record) => sum + record.stars, 0);
+  const allWords = [...new Set(history.flatMap((record) => record.words))];
+  const trickyCounts = new Map<string, number>();
+  history.forEach((record) => record.help.forEach((word) => trickyCounts.set(word, (trickyCounts.get(word) ?? 0) + 1)));
+  const overTime = history.length > 0 && (
+    <section className="over-time">
+      <div className="dashboard-section-heading">
+        <span className="eyebrow">Over time</span>
+        <h2>{kid?.name ?? progress?.child_name}’s progress</h2>
+      </div>
+      <div className="over-time-grid">
+        <article className="summary-card">
+          <span className="summary-label">Stories read</span>
+          <strong className="big-number">{history.length}</strong>
+        </article>
+        <article className="summary-card">
+          <span className="summary-label">Stars collected</span>
+          <strong className="big-number">⭐ {totalStars}</strong>
+        </article>
+        <article className="summary-card">
+          <span className="summary-label">All words practised</span>
+          <div className="summary-chips">
+            {allWords.length ? allWords.map((word) => <span key={word} className="summary-chip">{word}</span>) : <small>Words appear after the first story</small>}
+          </div>
+        </article>
+        <article className="summary-card">
+          <span className="summary-label">Keep practising</span>
+          <div className="summary-chips">
+            {trickyCounts.size ? (
+              [...trickyCounts.entries()]
+                .sort((x, y) => y[1] - x[1])
+                .map(([word, count]) => (
+                  <span key={word} className="summary-chip flag">
+                    ⚑ {word} {count > 1 ? `×${count}` : ""}
+                  </span>
+                ))
+            ) : (
+              <small>No tricky words so far 🎉</small>
+            )}
+          </div>
+        </article>
+      </div>
+      <ol className="story-log">
+        {history
+          .slice(-5)
+          .reverse()
+          .map((record) => (
+            <li key={record.at}>
+              <span>{new Date(record.at).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" })}</span>
+              <span>Pip’s Gentle Journey Home</span>
+              <b>⭐ {record.stars}</b>
+            </li>
+          ))}
+      </ol>
+    </section>
+  );
 
   if (!progress) {
     return (
@@ -2618,6 +2924,31 @@ function Dashboard({
           </div>
           <p>Opening the storybook…</p>
         </div>
+      </main>
+    );
+  }
+
+  if (!liveData && history.length === 0) {
+    return (
+      <main className="app-shell dashboard-page page-enter">
+        <header className="topbar dashboard-topbar">
+          <BackButton onClick={onBack} label="Children" />
+          <Logo compact />
+          <span />
+        </header>
+        <section className="dashboard">
+          {childTabs}
+          <div className="dashboard-empty">
+            <div className="loading-moon">
+              <Icon name="book" size={34} />
+            </div>
+            <h1>No stories yet for {kid?.name ?? "this reader"}</h1>
+            <p>Read a story together and this page fills with {kid?.name ?? "their"}’s own progress.</p>
+            <button className="primary-button compact" onClick={onStart}>
+              <Icon name="book" size={19} /> {words().startButton}
+            </button>
+          </div>
+        </section>
       </main>
     );
   }
@@ -2639,17 +2970,57 @@ function Dashboard({
         </button>
       </header>
       <section className="dashboard">
+        {childTabs}
         <div className="dashboard-heading">
           <div>
             <span className="eyebrow teal">Parent dashboard</span>
-            <h1>{progress.child_name}’s story journey</h1>
+            <h1>{kid?.name ?? progress.child_name}’s story journey</h1>
             <p>A gentle look at their growing voice.</p>
           </div>
           <button className="primary-button compact" onClick={onStart}>
-            <Icon name="book" size={19} /> Start tonight’s story
+            <Icon name="book" size={19} /> {words().startButton}
           </button>
         </div>
 
+        {liveData && progress.summary && (
+          <section className="summary-grid" aria-label="Tonight at a glance">
+            <article className="summary-card summary-stars">
+              <span className="summary-label">Stars · latest story</span>
+              <strong>⭐ {progress.summary.stars_tonight}</strong>
+            </article>
+            <article className="summary-card">
+              <span className="summary-label">Words practised</span>
+              <div className="summary-chips">
+                {progress.summary.words_practised.length ? (
+                  progress.summary.words_practised.map((word) => (
+                    <span key={word} className="summary-chip">{word}</span>
+                  ))
+                ) : (
+                  <small>Play a story to see words here</small>
+                )}
+              </div>
+            </article>
+            <article className="summary-card summary-help">
+              <span className="summary-label">Needed a little help</span>
+              <div className="summary-chips">
+                {progress.summary.needed_help.length ? (
+                  progress.summary.needed_help.map((word) => (
+                    <span key={word} className="summary-chip flag">⚑ {word}</span>
+                  ))
+                ) : (
+                  <small>Nothing tricky this time 🎉</small>
+                )}
+              </div>
+            </article>
+            <article className="summary-card summary-note">
+              <span className="summary-label">A note from Pip's guide</span>
+              <p>{progress.summary.agent_note || "Lovely reading!"}</p>
+            </article>
+          </section>
+        )}
+        {overTime}
+        {!progress.summary && !liveData && history.length > 0 ? null : !progress.summary && (
+        <>
         <section className="dashboard-section tonight-section">
           <h2>Tonight</h2>
           <div className="tonight-grid">
@@ -2754,8 +3125,11 @@ function Dashboard({
           </article>
         </div>
 
+        </>
+        )}
         {(() => {
           // Flag problem areas: words the guide had to help with (hint, retry, modelled answer).
+          if (progress.summary || !liveData) return null; // summary already shows these; never flag mock data
           const helpActions = /retry|hint|model|easier|together/i;
           const tricky = new Map<string, number>();
           (progress.agent_log ?? [])
@@ -2788,11 +3162,11 @@ function Dashboard({
           );
         })()}
 
-        {progress.agent_log?.length ? (
+        {liveData && progress.agent_log?.length ? (
           <section className="speakaboo-helped">
             <div className="dashboard-section-heading">
               <span className="eyebrow teal">Behind the story</span>
-              <h2>How Speakaboo helped tonight</h2>
+              <h2>How Speakaboo helped in the latest story</h2>
             </div>
             <ol className="helped-timeline">
               {progress.agent_log.map((entry, index) => {
@@ -2849,6 +3223,8 @@ export default function App() {
   const [children, setChildren] = useState<Child[]>(initialChildren);
   const [activeId, setActiveId] = useState(1);
   const [editingChild, setEditingChild] = useState<Child | undefined>();
+  const [tonightStars, setTonightStars] = useState(0);
+  const [resumeFrom, setResumeFrom] = useState<string | null>(null);
   const activeChild = useMemo(
     () => children.find((child) => child.id === activeId) ?? children[0],
     [children, activeId],
@@ -2856,14 +3232,14 @@ export default function App() {
 
   const selectChild = (child: Child) => {
     setActiveId(child.id);
-    setScreen("story");
+    setScreen("library");
   };
 
   const addChild = (child: Child) => {
     const nextChild = { ...child, id: Math.max(...children.map((item) => item.id), 0) + 1 };
     setChildren([...children, nextChild]);
     setActiveId(nextChild.id);
-    setScreen("story");
+    setScreen("library");
   };
 
   const saveChild = (child: Child) => {
@@ -2922,18 +3298,39 @@ export default function App() {
         onDone={saveChild}
       />
     );
+  if (screen === "library")
+    return (
+      <Library
+        child={activeChild}
+        onBack={() => setScreen("children")}
+        onRead={(resume) => {
+          setResumeFrom(resume);
+          setScreen("story");
+        }}
+      />
+    );
   if (screen === "story")
     return (
       <StoryScene
         child={activeChild}
-        onFinish={() => setScreen("goodnight")}
-        onExit={() => setScreen("children")}
+        resumeSceneId={resumeFrom}
+        onFinish={(stars) => {
+          setTonightStars(stars);
+          recordStory(activeChild.id, stars);
+          // pull this story's summary into the child's own history
+          void getProgress(activeChild.id).then((progress) => {
+            if (!isOfflineDemo() && progress.summary) addSummaryToLatest(activeChild.id, progress.summary);
+          });
+          setScreen("goodnight");
+        }}
+        onExit={() => setScreen("library")}
       />
     );
   if (screen === "goodnight")
     return (
       <Goodnight
         child={activeChild}
+        stars={tonightStars}
         onHome={() => setScreen("children")}
         onDashboard={() => setScreen("dashboard")}
       />
@@ -2941,8 +3338,10 @@ export default function App() {
   return (
     <Dashboard
       childId={activeChild.id}
+      kids={children}
+      onPickChild={setActiveId}
       onBack={() => setScreen("children")}
-      onStart={() => setScreen("story")}
+      onStart={() => setScreen("library")}
     />
   );
 }

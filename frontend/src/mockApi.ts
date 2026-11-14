@@ -12,6 +12,7 @@ export type ApiChild = {
     pet: string;
     image_png?: string; // base64 PNG of the drawn avatar, repainted on fal by the backend
   };
+  resume_scene_id?: string | null; // "Continue" starts from the page the child stopped at
 };
 
 export type Scene = {
@@ -31,6 +32,7 @@ export type Scene = {
 export type StartSessionResponse = {
   // Read on the book cover before the story starts: title + a hello for the child.
   intro?: { text: string; audio_url: string | null } | null;
+  stars?: number;
   session_id: string;
   child_id: number | string;
   avatar_url: string | null;
@@ -38,6 +40,7 @@ export type StartSessionResponse = {
 };
 
 export type SendTurnResponse = {
+  stars?: number; // running total for tonight: 1 per word said, +1 on a first try
   transcript: string;
   result: "hit" | "miss";
   feedback: string;
@@ -57,6 +60,12 @@ export type ProgressResponse = {
   nightly: { date: string; hits: number; attempts: number }[];
   parent_notes: string;
   agent_log?: { scene: string; action: string; reason: string }[];
+  summary?: {
+    stars_tonight: number;
+    words_practised: string[];
+    needed_help: string[];
+    agent_note: string;
+  };
 };
 
 export type MockChildProfile = {

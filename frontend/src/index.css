@@ -3574,7 +3574,7 @@
   padding: 24px;
   color: #fff8ec;
   background: radial-gradient(circle at 50% 40%, rgba(43, 53, 96, 0.82), rgba(20, 26, 48, 0.94));
-  animation: title-in 0.8s ease both, title-out 0.8s ease 4.4s forwards;
+  animation: title-in 0.8s ease both;
 }
 .title-card small {
   text-transform: uppercase;
@@ -4097,3 +4097,203 @@ html.night .narration p span.active {
 @media (prefers-reduced-motion: reduce) {
   .start-story-button.invite, .start-story-button.invite::after { animation: none; }
 }
+
+/* ---------- Bookshelf ---------- */
+.library { max-width: 1040px; margin: 0 auto; padding: 24px 24px 60px; }
+.library h1 { font-family: "Nunito", sans-serif; font-size: clamp(26px, 3.4vw, 40px); margin: 6px 0 26px; }
+.shelf {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 22px;
+  padding-bottom: 18px;
+  border-bottom: 10px solid #d9b98a;
+  border-radius: 0 0 6px 6px;
+}
+.book {
+  background: #fffaf2;
+  border-radius: 18px;
+  padding: 12px 12px 16px;
+  box-shadow: 0 10px 24px rgba(27, 35, 64, 0.12);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.book h2 { font-family: "Nunito", sans-serif; font-size: 17px; margin: 4px 2px 0; }
+.book small { color: var(--ink-muted); margin-left: 2px; }
+.book-cover-art {
+  position: relative;
+  aspect-ratio: 3 / 4;
+  border-radius: 12px;
+  overflow: hidden;
+  background: linear-gradient(160deg, #2b365b, #1b2340);
+  display: grid;
+  place-items: center;
+}
+.book-cover-art img { width: 100%; height: 100%; object-fit: cover; }
+.book-pip { position: absolute; right: 10px; top: 10px; width: 54px; animation: pip-float 3.2s ease-in-out infinite; }
+.book-pip svg { width: 100%; height: auto; }
+.book-lock { font-size: 34px; opacity: 0.8; }
+.book.locked { opacity: 0.6; }
+.book.locked .book-cover-art { filter: grayscale(0.4); }
+.book-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+html.night .book { background: #202a4d; }
+html.night .shelf { border-bottom-color: #3a3250; }
+
+/* ---------- Stars ---------- */
+.star-count { color: #c98a12; font-weight: 800; }
+html.night .star-count { color: #f2c14e; }
+.earned-stars { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px; }
+.earned-stars i { animation: star-pop 0.5s ease both; }
+@keyframes star-pop { from { transform: scale(0); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+
+/* ---------- Simplified dashboard (summary) ---------- */
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 18px;
+  margin: 8px 0 24px;
+}
+.summary-card {
+  background: #fffaf2;
+  border-radius: 22px;
+  padding: 20px 22px;
+  box-shadow: 0 8px 22px rgba(27, 35, 64, 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.summary-label { font-size: 12px; font-weight: 800; letter-spacing: 1px; text-transform: uppercase; color: var(--ink-muted); }
+.summary-stars strong { font-family: "Nunito", sans-serif; font-size: 44px; line-height: 1; }
+.summary-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.summary-chip { padding: 6px 12px; border-radius: 999px; background: #e6f4f0; color: #2f6b63; font-weight: 800; font-size: 14px; }
+.summary-chip.flag { background: #fff1d6; color: #8a5a12; }
+.summary-note { background: #1b2340; color: #fff6e5; }
+.summary-note .summary-label { color: #f2c14e; }
+.summary-note p { margin: 0; font-family: "Nunito", sans-serif; font-size: 17px; font-weight: 700; line-height: 1.4; }
+html.night .summary-card { background: #202a4d; color: #f6ead2; }
+html.night .summary-note { background: #0f1430; }
+
+/* ---------- Per-child dashboard ---------- */
+.child-tabs { display: flex; gap: 8px; flex-wrap: wrap; margin: 4px 0 18px; }
+.child-tabs button {
+  padding: 8px 16px;
+  border-radius: 999px;
+  border: 1.5px solid rgba(27, 35, 64, 0.15);
+  background: transparent;
+  font-weight: 800;
+  color: var(--navy);
+}
+.child-tabs button.active { background: var(--navy); color: #fff6e5; border-color: var(--navy); }
+html.night .child-tabs button { color: #f6ead2; border-color: rgba(246, 234, 210, 0.25); }
+html.night .child-tabs button.active { background: #f2c14e; color: #1b2340; border-color: #f2c14e; }
+.over-time { margin: 6px 0 28px; }
+.over-time-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin-top: 12px; }
+.big-number { font-family: "Nunito", sans-serif; font-size: 40px; line-height: 1; }
+.story-log { list-style: none; padding: 0; margin: 16px 0 0; display: grid; gap: 8px; }
+.story-log li {
+  display: grid;
+  grid-template-columns: 120px 1fr auto;
+  gap: 12px;
+  padding: 10px 16px;
+  border-radius: 14px;
+  background: #fffaf2;
+  font-size: 14px;
+}
+html.night .story-log li { background: #202a4d; color: #f6ead2; }
+.dashboard-empty { text-align: center; padding: 60px 20px; display: grid; justify-items: center; gap: 10px; }
+.dashboard-empty h1 { font-family: "Nunito", sans-serif; margin: 6px 0 0; }
+
+/* ---------- Bookshelf v2: a real wooden bookcase ---------- */
+.library { max-width: 980px; }
+.bookcase {
+  position: relative;
+  padding: 26px 26px 10px;
+  border-radius: 18px;
+  background:
+    linear-gradient(90deg, rgba(0,0,0,0.18), transparent 6%, transparent 94%, rgba(0,0,0,0.18)),
+    repeating-linear-gradient(90deg, #7a4f2c 0 2px, #84573a 2px 60px, #7e5333 60px 62px, #8a5d3c 62px 130px);
+  border: 14px solid #5e3a20;
+  box-shadow: inset 0 0 40px rgba(0, 0, 0, 0.45), 0 20px 40px rgba(27, 35, 64, 0.25);
+}
+.shelf-row {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  gap: 22px;
+  min-height: 300px;
+  padding: 18px 18px 0;
+  margin-bottom: 26px;
+  background: linear-gradient(180deg, rgba(0,0,0,0.35), rgba(0,0,0,0.12) 30%, rgba(0,0,0,0.05));
+  border-radius: 6px 6px 0 0;
+}
+.shelf-plank {
+  position: absolute;
+  left: -12px;
+  right: -12px;
+  bottom: -18px;
+  height: 20px;
+  background: linear-gradient(180deg, #a87447, #6b4426);
+  border-radius: 3px;
+  box-shadow: 0 8px 12px rgba(0, 0, 0, 0.35);
+}
+.spines { display: flex; align-items: flex-end; gap: 4px; height: 200px; }
+.spines i {
+  display: block;
+  width: 26px;
+  border-radius: 3px 3px 0 0;
+  box-shadow: inset -4px 0 0 rgba(0, 0, 0, 0.18), inset 3px 0 0 rgba(255, 255, 255, 0.15);
+}
+.shelf-decor { font-size: 54px; line-height: 1; margin-bottom: 2px; filter: drop-shadow(0 6px 6px rgba(0,0,0,0.35)); }
+.bookcase .book {
+  background: transparent;
+  box-shadow: none;
+  padding: 0;
+  width: 190px;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 2px;
+}
+.book-3d {
+  perspective: 900px;
+  width: 170px;
+}
+.bookcase .book-cover-art {
+  position: relative;
+  aspect-ratio: 3 / 4;
+  border-radius: 4px 10px 10px 4px;
+  transform: rotateY(-14deg);
+  transform-origin: left center;
+  box-shadow:
+    inset 8px 0 0 rgba(0, 0, 0, 0.25),
+    inset 10px 0 0 rgba(255, 255, 255, 0.12),
+    10px 12px 18px rgba(0, 0, 0, 0.45);
+  transition: transform 0.35s ease;
+}
+.bookcase .book:not(.locked):hover .book-cover-art { transform: rotateY(-4deg) translateY(-8px); }
+.book-title-on-cover {
+  position: absolute;
+  left: 16px;
+  right: 10px;
+  bottom: 12px;
+  font-family: "Nunito", sans-serif;
+  font-weight: 800;
+  font-size: 15px;
+  line-height: 1.15;
+  color: #fff8e8;
+  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.6);
+}
+.bookcase .book.locked .book-cover-art { background: linear-gradient(160deg, #3a4570, #232b4d); }
+.bookcase .book.locked:nth-of-type(2n) .book-cover-art { background: linear-gradient(160deg, #6f5a8f, #3d3058); }
+.bookcase .book.locked { opacity: 0.8; }
+.book-soon { color: #f3e2c6 !important; font-weight: 700; }
+.bookcase .book-actions { justify-content: center; }
+html.night .bookcase { border-color: #3e2716; }
+@media (max-width: 640px) {
+  .shelf-row { flex-wrap: wrap; justify-content: center; min-height: 0; }
+  .spines, .shelf-decor { display: none; }
+}
+
+/* Night mode: top-bar back buttons and other navy text on dark pages */
+html.night :is(.cream-page, .dashboard-page) :is(.icon-text-button, .topbar, .library h1, .dashboard-heading h1) { color: #f6ead2; }
+html.night :is(.cream-page, .dashboard-page) .icon-text-button svg { color: #f6ead2; }
+html.night .title-card { color: #fff6e5; }
