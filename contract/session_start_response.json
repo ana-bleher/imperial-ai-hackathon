@@ -6,11 +6,11 @@
     "id": "s1",
     "index": 1,
     "total": 5,
-    "narration": "...",
-    "narration_audio_url": "https://YOUR-APP.onrender.com/static/audio/s1.mp3",
+    "narration": "On a quiet afternoon, Mia walked through a soft green meadow with a friendly fox. ...",
+    "narration_audio_url": null,
     "image_url": "https://YOUR-APP.onrender.com/static/scenes/s1.png",
-    "avatar_position": {"x": 0.3, "y": 0.62, "scale": 0.35},
-    "challenge": {"level": 1, "prompt": "Can you say 'forest'?", "target_words": ["forest"]},
+    "avatar_position": {"x": 0.26, "y": 0.64, "scale": 0.32},
+    "challenge": {"level": 1, "prompt": "Can you say 'afternoon'?", "target_words": ["afternoon"]},
     "choices": null
   }
 }

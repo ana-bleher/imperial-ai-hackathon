@@ -1,21 +1,21 @@
 {
-  "transcript": "forest",
+  "transcript": "afternoon",
   "result": "hit",
-  "feedback": "You said forest!",
-  "feedback_audio_url": "https://YOUR-APP.onrender.com/static/audio/feedback.mp3",
+  "feedback": "You said 'afternoon'!",
+  "feedback_audio_url": null,
   "retry": false,
   "scene": {
     "id": "s2",
     "index": 2,
     "total": 5,
-    "narration": "...",
-    "narration_audio_url": "https://YOUR-APP.onrender.com/static/audio/s2.mp3",
+    "narration": "The wooden sign showed two bright pictures: a golden sun and a silver moon. ...",
+    "narration_audio_url": null,
     "image_url": "https://YOUR-APP.onrender.com/static/scenes/s2.png",
-    "avatar_position": {"x": 0.3, "y": 0.62, "scale": 0.35},
-    "challenge": {"level": 1, "prompt": "Shall we go to the lantern or the owl?", "target_words": ["lantern", "owl"]},
+    "avatar_position": {"x": 0.22, "y": 0.68, "scale": 0.3},
+    "challenge": {"level": 1, "prompt": "Which one warms the flowers during the day: sun or moon?", "target_words": ["sun", "moon"]},
     "choices": [
-      {"word": "lantern", "label": "Lift the lantern", "icon": "lantern"},
-      {"word": "owl", "label": "Ask the owl", "icon": "owl"}
+      {"word": "sun", "label": "Sun", "icon": "sun"},
+      {"word": "moon", "label": "Moon", "icon": "moon"}
     ]
   },
   "story_complete": false

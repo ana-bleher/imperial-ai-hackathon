@@ -1,22 +1,35 @@
 """Fallback rule: plain Python, no AI. Used on every turn until the agent is wired in,
 and afterwards whenever the agent is slow (>6 s) or returns something invalid.
 
-Rules (CLAUDE.md):
-- Level 1-3. 2 hits in a row = level up. 2 misses in a row = level down + hint.
-- At most 3 tries per scene, then move on with a parent note.
-- First silence in a scene is not a miss: "Shall we try together?"
-- Branch scenes: either branch word = hit. Neither, first time: repeat the options.
-  Neither, second time: propose one. Then "yes" takes it, "no" takes the other,
-  anything else takes the proposed one. No miss is ever counted on a branch scene.
+Rules (CLAUDE.md), by the scene's decision type:
+- No decision (speaking challenge): level 1-3. 2 hits in a row = level up. 2 misses in a row =
+  level down + hint. At most max_attempts (default 3) tries, then move on with a parent note.
+- single_correct: the correct_word is a hit. Anything else is a miss: authored hint + retry,
+  until max_attempts, then reveal the answer, advance and leave a parent note.
+  Never changes the level (levels apply to speaking challenges only).
+- branch_choice: any branch word picks that branch. Neither, first time: repeat the options.
+  Neither, second time: propose one. Then "yes" takes it, "no" takes the other, anything else
+  takes the proposed one. Never counted as a miss.
+- First silence in a scene is never a miss: "Shall we try together?"
 
-State lives in the session dict (see new_scene_state / the keys used below).
+State lives in the session dict (see new_session_state / enter_scene).
 `turn()` mutates it and returns a decision dict; agent/main.py applies the decision.
+Every decision carries a short `reason` for the parent dashboard's agent_log
+(it never quotes the child's words).
 """
 import re
 from difflib import SequenceMatcher
 
 MIN_LEVEL, MAX_LEVEL = 1, 3
-MAX_TRIES = 3
+MAX_TRIES = 3  # default when the scene's decision has no max_attempts
+
+SINGLE_CORRECT, BRANCH_CHOICE = "single_correct", "branch_choice"
+# Authored action names this code implements (CLAUDE.md: they describe behaviour, they are not code).
+SUPPORTED_ACTIONS = {
+    "on_correct": {"advance"},
+    "on_incorrect": {"retry_with_hint", "retry"},
+    "on_max_attempts": {"reveal_correct_and_advance", "advance"},
+}
 
 YES = {"yes", "yeah", "yep", "yup", "ok", "okay", "sure", "please", "alright"}
 NO = {"no", "nope", "nah", "not"}
@@ -129,10 +142,46 @@ def make_challenge(narration: str, key_word: str, level: int, hint: bool = False
     return {"level": level, "prompt": prompt, "target_words": words(phrase)}
 
 
-def branch_challenge(scene: dict, proposed: str | None = None) -> dict:
-    a, b = (br["word"] for br in scene["branches"])
-    prompt = f"Shall we take the {proposed}?" if proposed else f"Shall we go to the {a} or the {b}?"
-    return {"level": 1, "prompt": prompt, "target_words": [a, b]}
+def decision_type(scene: dict) -> str | None:
+    """single_correct, branch_choice, or None for an agent-made speaking challenge."""
+    dec = scene.get("decision") or {}
+    if dec.get("type"):
+        return dec["type"]
+    return BRANCH_CHOICE if scene.get("branches") else None
+
+
+def max_attempts(scene: dict) -> int:
+    return (scene.get("decision") or {}).get("max_attempts") or MAX_TRIES
+
+
+def branch_challenge(scene: dict, proposed: dict | None = None) -> dict:
+    words_ = [br["word"] for br in scene["branches"]]
+    if proposed:
+        label = proposed.get("label") or f"go to the {proposed['word']}"
+        prompt = f"Shall we {label[0].lower() + label[1:]}?"
+    else:
+        prompt = (scene.get("decision") or {}).get("prompt") or \
+            "Shall we go to the " + " or the ".join(words_) + "?"
+    return {"level": 1, "prompt": prompt, "target_words": words_}
+
+
+def question_challenge(scene: dict, level: int) -> dict:
+    """single_correct: the authored prompt. Target words are all the options (not just the answer),
+    so the screen never gives the answer away."""
+    dec = scene["decision"]
+    return {"level": level, "prompt": dec["prompt"], "target_words": [o["word"] for o in dec["options"]]}
+
+
+def scene_choices(scene: dict) -> list[dict] | None:
+    """Tap cards: the options on single_correct scenes, the branches on branch scenes, else None."""
+    kind = decision_type(scene)
+    if kind == SINGLE_CORRECT:
+        items = scene["decision"]["options"]
+    elif kind == BRANCH_CHOICE:
+        items = scene["branches"]
+    else:
+        return None
+    return [{k: it.get(k) for k in ("word", "label", "icon")} for it in items]
 
 
 # ---------- state ----------
@@ -144,9 +193,12 @@ def new_session_state() -> dict:
 def enter_scene(state: dict, scene: dict, narration: str, exclude: set[str] = frozenset()) -> dict:
     """Reset per-scene counters and set the scene's first challenge."""
     state.update(scene_id=scene["id"], tries=0, silences=0, branch_misses=0, proposed=None)
-    if "branches" in scene:
-        state["key_word"] = None
+    kind = decision_type(scene)
+    state["key_word"] = None
+    if kind == BRANCH_CHOICE:
         state["challenge"] = branch_challenge(scene)
+    elif kind == SINGLE_CORRECT:
+        state["challenge"] = question_challenge(scene, state["level"])
     else:
         state["key_word"] = pick_key_word(narration, set(state["practised"]), exclude)
         state["challenge"] = make_challenge(narration, state["key_word"], state["level"])
@@ -155,7 +207,7 @@ def enter_scene(state: dict, scene: dict, narration: str, exclude: set[str] = fr
 
 def _decision(**kw) -> dict:
     d = {"result": None, "log_result": None, "action": None, "feedback": "", "retry": False,
-         "next_id": None, "parent_note": None, "challenge": None}
+         "next_id": None, "parent_note": None, "challenge": None, "reason": "", "targets": None}
     d.update(kw)
     d["log_result"] = d["log_result"] or d["result"]
     return d
@@ -164,20 +216,25 @@ def _decision(**kw) -> dict:
 # ---------- the rule ----------
 
 def turn(state: dict, scene: dict, narration: str, transcript: str) -> dict:
-    if "branches" in scene:
+    kind = decision_type(scene)
+    if kind == BRANCH_CHOICE:
         return _branch_turn(state, scene, transcript)
+    if kind == SINGLE_CORRECT:
+        return _question_turn(state, scene, transcript)
     return _scene_turn(state, scene, narration, transcript)
 
 
 def _scene_turn(state: dict, scene: dict, narration: str, transcript: str) -> dict:
     challenge = state["challenge"]
     phrase = " ".join(challenge["target_words"])
+    key = state["key_word"]
 
     if not words(transcript):
         state["silences"] += 1
         if state["silences"] == 1:
             return _decision(result="silence", action="retry", retry=True, challenge=challenge,
-                             feedback=f"Shall we try together? Listen: '{phrase}'.")
+                             feedback=f"Shall we try together? Listen: '{phrase}'.",
+                             reason="First silence: offered to try together, not counted as a miss")
         # Later silences count as a miss.
 
     state["tries"] += 1
@@ -186,13 +243,16 @@ def _scene_turn(state: dict, scene: dict, narration: str, transcript: str) -> di
     if hit:
         state["hit_streak"] += 1
         state["miss_streak"] = 0
+        reason = f"Heard '{phrase}' at level {challenge['level']}"
         if state["hit_streak"] >= 2:
+            if state["level"] < MAX_LEVEL:
+                reason += f"; two hits in a row, level up to {state['level'] + 1}"
             state["level"] = min(MAX_LEVEL, state["level"] + 1)
             state["hit_streak"] = 0
-        state["practised"] = sorted(set(state["practised"]) | {state["key_word"]})
-        named = phrase if len(challenge["target_words"]) <= 4 else state["key_word"]
+        state["practised"] = sorted(set(state["practised"]) | {key})
+        named = phrase if len(challenge["target_words"]) <= 4 else key
         return _decision(result="hit", action="advance", next_id=scene.get("next"),
-                         feedback=f"You said '{named}'!")
+                         feedback=f"You said '{named}'!", reason=reason)
 
     state["miss_streak"] += 1
     state["hit_streak"] = 0
@@ -201,20 +261,60 @@ def _scene_turn(state: dict, scene: dict, narration: str, transcript: str) -> di
         state["level"] = max(MIN_LEVEL, state["level"] - 1)
         state["miss_streak"] = 0
 
-    if state["tries"] >= MAX_TRIES:
+    limit = max_attempts(scene)
+    if state["tries"] >= limit:
         return _decision(result="miss", action="move_on", next_id=scene.get("next"),
                          feedback="What great trying! Let's see what happens next.",
-                         parent_note=f"Struggled with '{state['key_word']}' - practise together")
+                         parent_note=f"Struggled with '{key}' - practise together",
+                         reason=f"'{key}' not heard after {limit} tries; moved on")
 
     if level_down:
-        new = make_challenge(narration, state["key_word"], state["level"], hint=True)
+        new = make_challenge(narration, key, state["level"], hint=True)
         state["challenge"] = new
         target = " ".join(new["target_words"])
         return _decision(result="miss", action="retry_with_hint", retry=True, challenge=new,
-                         feedback=f"Nice try! It starts with '{target[0]}'. Listen: '{target}'. Your turn!")
+                         feedback=f"Nice try! It starts with '{target[0]}'. Listen: '{target}'. Your turn!",
+                         reason=f"Two misses in a row; easier level {state['level']} with a hint")
 
     return _decision(result="miss", action="retry", retry=True, challenge=challenge,
-                     feedback=f"Good try! Listen: '{phrase}'. Your turn!")
+                     feedback=f"Good try! Listen: '{phrase}'. Your turn!",
+                     reason=f"'{phrase}' not heard (try {state['tries']} of {limit}); modelled it again")
+
+
+def _question_turn(state: dict, scene: dict, transcript: str) -> dict:
+    """single_correct: assess against correct_word. Does not touch the level or streaks."""
+    dec = scene["decision"]
+    challenge = state["challenge"]
+    correct = dec["correct_word"]
+    others = [o["word"] for o in dec["options"] if o["word"] != correct] + dec.get("incorrect_words", [])
+    said = words(transcript)
+
+    if not said:
+        state["silences"] += 1
+        if state["silences"] == 1:
+            return _decision(result="silence", action="retry", retry=True, challenge=challenge,
+                             feedback="Shall we try together? " + dec["prompt"],
+                             reason="First silence: repeated the question, not counted as a miss")
+
+    state["tries"] += 1
+    if heard(correct, said) and not any(heard(o, said) for o in others):
+        return _decision(result="hit", action="advance", next_id=scene.get("next"), targets=[correct],
+                         feedback=f"Yes, the {correct}! Well done!",
+                         reason=f"Answered '{correct}' correctly on try {state['tries']}")
+
+    limit = max_attempts(scene)
+    if state["tries"] >= limit:
+        return _decision(result="miss", action="move_on", next_id=scene.get("next"), targets=[correct],
+                         feedback=f"What great thinking! It's the {correct}. Let's see what happens next.",
+                         parent_note=f"Needed help with: {dec['prompt']} (answer: '{correct}') - talk about it together",
+                         reason=f"Not answered after {limit} tries; revealed '{correct}' and moved on")
+
+    hint = dec.get("hint") if dec.get("on_incorrect", "retry_with_hint") == "retry_with_hint" else None
+    return _decision(result="miss", action="retry_with_hint" if hint else "retry", retry=True,
+                     challenge=challenge, targets=[correct],
+                     feedback=f"Good thinking! {hint or dec['prompt']}",
+                     reason=f"Answer was not '{correct}' (try {state['tries']} of {limit}); "
+                            + ("gave the authored hint" if hint else "asked again"))
 
 
 def _match_branch(scene: dict, said: list[str]) -> dict | None:
@@ -233,19 +333,24 @@ def _branch_turn(state: dict, scene: dict, transcript: str) -> dict:
     chosen = _match_branch(scene, said)
     if chosen:
         return _decision(result="hit", action="advance", next_id=chosen["next"],
-                         feedback=f"You said '{chosen['word']}'! Let's go!", chosen=chosen["word"])
+                         feedback=f"You said '{chosen['word']}'! Let's go!", chosen=chosen["word"],
+                         reason=f"Chose '{chosen['word']}'")
 
     if not said and state["silences"] == 0:
         state["silences"] += 1
         return _decision(result="silence", action="retry", retry=True, challenge=state["challenge"],
-                         feedback="Shall we try together? " + state["challenge"]["prompt"])
+                         feedback="Shall we try together? " + state["challenge"]["prompt"],
+                         reason="First silence: repeated the options, not counted as a miss")
 
     if state["proposed"]:
         proposed = next(br for br in branches if br["word"] == state["proposed"])
         other = next(br for br in branches if br is not proposed)
-        pick = other if (set(said) & NO and not set(said) & YES) else proposed
+        declined = bool(set(said) & NO and not set(said) & YES)
+        pick = other if declined else proposed
         return _decision(result="hit", log_result="choice", action="advance", next_id=pick["next"],
-                         feedback=f"Let's take the {pick['word']}!", chosen=pick["word"])
+                         feedback=f"Let's take the {pick['word']}!", chosen=pick["word"],
+                         reason=f"Proposed '{proposed['word']}'; "
+                                + (f"child said no, took '{pick['word']}'" if declined else "went with it"))
 
     # Neither word: not counted as a miss.
     state["branch_misses"] += 1
@@ -253,10 +358,13 @@ def _branch_turn(state: dict, scene: dict, transcript: str) -> dict:
         ch = branch_challenge(scene)
         state["challenge"] = ch
         return _decision(result="miss", log_result="no_choice", action="retry", retry=True,
-                         challenge=ch, feedback=f"Ooh, which way? {ch['prompt']}")
+                         challenge=ch, feedback=f"Ooh, which way? {ch['prompt']}",
+                         reason="No branch word heard; repeated the options (not a miss)")
 
-    state["proposed"] = branches[0]["word"]
-    ch = branch_challenge(scene, proposed=state["proposed"])
+    proposed = branches[0]
+    state["proposed"] = proposed["word"]
+    ch = branch_challenge(scene, proposed=proposed)
     state["challenge"] = ch
     return _decision(result="miss", log_result="no_choice", action="retry", retry=True,
-                     challenge=ch, feedback=ch["prompt"])
+                     challenge=ch, feedback=ch["prompt"],
+                     reason=f"Still no branch word; proposed '{proposed['word']}' (not a miss)")
