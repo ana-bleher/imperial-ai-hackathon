@@ -1,0 +1,22 @@
+{
+  "transcript": "forest",
+  "result": "hit",
+  "feedback": "You said forest!",
+  "feedback_audio_url": "https://YOUR-APP.onrender.com/static/audio/feedback.mp3",
+  "retry": false,
+  "scene": {
+    "id": "s2",
+    "index": 2,
+    "total": 5,
+    "narration": "...",
+    "narration_audio_url": "https://YOUR-APP.onrender.com/static/audio/s2.mp3",
+    "image_url": "https://YOUR-APP.onrender.com/static/scenes/s2.png",
+    "avatar_position": {"x": 0.3, "y": 0.62, "scale": 0.35},
+    "challenge": {"level": 1, "prompt": "Shall we go to the lantern or the owl?", "target_words": ["lantern", "owl"]},
+    "choices": [
+      {"word": "lantern", "label": "Lift the lantern", "icon": "lantern"},
+      {"word": "owl", "label": "Ask the owl", "icon": "owl"}
+    ]
+  },
+  "story_complete": false
+}

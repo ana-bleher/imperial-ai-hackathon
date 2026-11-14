@@ -10,3 +10,5 @@ uvicorn
 python-multipart
 elevenlabs
 pytest
+
+httpx

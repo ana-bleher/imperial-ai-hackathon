@@ -1,0 +1,16 @@
+{
+  "session_id": "abc",
+  "child_id": "mia-1",
+  "avatar_url": null,
+  "scene": {
+    "id": "s1",
+    "index": 1,
+    "total": 5,
+    "narration": "...",
+    "narration_audio_url": "https://YOUR-APP.onrender.com/static/audio/s1.mp3",
+    "image_url": "https://YOUR-APP.onrender.com/static/scenes/s1.png",
+    "avatar_position": {"x": 0.3, "y": 0.62, "scale": 0.35},
+    "challenge": {"level": 1, "prompt": "Can you say 'forest'?", "target_words": ["forest"]},
+    "choices": null
+  }
+}
