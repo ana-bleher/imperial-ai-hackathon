@@ -9,8 +9,11 @@ All Claude Code prompts assume CLAUDE.md is in the repo root. Replace [APP NAME]
 Write an original children's story for ages 4–6 for an interactive speaking-practice app.
 The hero is called {CHILD_NAME} (use the placeholder literally) and has an animal friend {PET}.
 Constraints:
-- Exactly 5 scenes on the main path, ~60–90 words of narration each, warm and calm, ending in a
-  cosy wind-down where the hero gets ready for sleep.
+- Exactly 5 scenes on the main path, warm and calm, ending in a cosy wind-down where the hero gets
+  ready for sleep. The hero's pronouns are {THEY}/{THEM}/{THEIR} placeholders.
+- The PLOT is identical at every level, but each scene's narration is written at 3 language levels:
+  level 1 = very short, simple sentences (~40 words); level 2 = normal (~60 words);
+  level 3 = richer sentences with 1–2 new describing words (~80 words).
 - 2 branch points (end of scene 2 and scene 4). Each offers exactly 2 options the child picks by
   saying ONE word (e.g. "bridge" or "boat"). Each option leads to its own short scene (s3a/s3b,
   s5a/s5b), so 7 scenes in total.
@@ -20,10 +23,10 @@ Constraints:
   "avatar_position" {x, y, scale} (0–1) saying where the hero should stand in the picture.
 - Nothing scary or violent; no real places or brands.
 Return valid JSON only:
-{ "title": "", "scenes": [ { "id": "s1", "narration": "", "image_prompt": "",
+{ "title": "", "scenes": [ { "id": "s1", "narration": {"1": "", "2": "", "3": ""}, "image_prompt": "",
   "avatar_position": {"x":0.3,"y":0.62,"scale":0.35},
   "challenge": { "1": {"prompt":"", "target_words":[]}, "2": {...}, "3": {...} },
-  "next": "s2" OR "branches": [{"word":"", "next":"s3a"}, {"word":"", "next":"s3b"}] } ] }
+  "next": "s2" OR "branches": [{"word":"", "label":"", "next":"s3a"}, {"word":"", "label":"", "next":"s3b"}] } ] }
 ```
 Save as `data/story.json`, commit, tell the team.
 
@@ -97,7 +100,8 @@ Pick one warm, calm, slightly slow narrator voice and keep it for every scene.
 Stretch (ElevenLabs bounty): an ElevenLabs conversational agent whose tool calls our /turn, so the
 child talks without holding a button.
 
-## G. Avatar — Ines (Claude Code + fal) — after F works
+## G. (DROPPED) AI-generated avatar — the avatar is now drawn in the frontend. Skip this section.
+## Old G, kept for reference only
 ```
 Add tools/images.py with make_avatar(traits) -> URL:
 1. Call a fal text-to-image model with the avatar prompt below.

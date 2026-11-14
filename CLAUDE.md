@@ -12,10 +12,22 @@ max ~15 minutes, calm wind-down ending. Parents log in, set up the child and see
 - **Deadline:** Devpost **Sun 12:00** (write-up + public GitHub link + 2-min video).
   Building closes Sat 21:00, reopens Sun 10:00. Feature freeze Sun ~09:30.
 
+## Vision
+Long term: an online archive of real (physical) children's books, each turned into an interactive
+story the child lives through. For the hackathon: ONE original story we write ourselves.
+
+## Core principles
+- **Ownership:** the child is the hero (own avatar, own name, chosen pronouns she/he/they) and makes
+  real choices at 2 decision points that change what happens next.
+- **Adaptive language, fixed plot:** the plot stays the same, but the agent adapts the LANGUAGE to the
+  child's level: narration complexity (level 1 short simple sentences → level 3 richer sentences and
+  new words) and the speaking challenge (1 word → short phrase → full sentence). It always nudges
+  one step above what the child just managed, to encourage learning.
+
 ## Priorities (in this order)
 1. **Speaking loop (must):** scene → narration → child speaks → agent evaluates → feedback → story adapts.
 2. **Parent progress page (must, small).**
-3. **Avatar (should, simplest version):** generated once, cut out, placed onto pre-made scene images.
+3. **Avatar + AI backgrounds (should):** drawn avatar (frontend) on fal-painted scene backgrounds.
 4. **Stretch:** real-time ElevenLabs voice agent, Adaption fine-tune, per-scene generated images, art styles.
 
 ## MVP scope
@@ -36,12 +48,21 @@ Figma Make app (hosted)  ──HTTPS──▶  FastAPI backend (deployed on Rend
 - Narration audio for all scenes is generated right after /session/start (in the background), so the
   story never waits.
 
-### Avatar approach (low risk)
-1. Generate the avatar ONCE with fal from the traits (illustrated, plain background).
-2. Remove the background (fal background-removal model) → transparent PNG.
-3. Scene illustrations are PRE-MADE (no character in them), stored in `static/scenes/`.
-4. Frontend overlays the avatar PNG on each scene at `avatar_position` from the scene data.
-Stretch only: per-scene generation with the avatar as reference image.
+### Avatar + images (DECIDED)
+- The child's avatar is DRAWN IN THE FRONTEND (Figma Make) from the chosen traits (pronouns, skin tone,
+  hair style, hair colour, outfit, animal friend). It is instant and identical in every scene.
+  No AI generation for the avatar. Backend just stores the traits; `avatar_url` may be null.
+- AI (fal) paints only the STORY BACKGROUNDS: one per scene, same picture-book style, no characters,
+  pre-made and stored in `static/scenes/`. The frontend places the avatar on top at `avatar_position`.
+
+### Turn-taking (DECIDED)
+- The child taps "Start the story" once (unlocks mic + audio). After that it is hands-free:
+  narration ends → "Your turn!" → mic opens automatically → stops after ~1.5 s silence (max 8 s)
+  → audio sent to /turn → feedback → next scene.
+- At decision points the child SAYS the option ("boat"). If no answer within 4 s, the two choice
+  cards fade in so the child can tap instead (voice still works). Silence on normal challenges →
+  one gentle re-prompt.
+- Stretch (ElevenLabs bounty): fully real-time conversation via an ElevenLabs agent.
 
 ### Agent tools (tools/, one file per tool)
 - `get_scene(scene_id)` → scene text, challenge per level, allowed branches (from data/story.json)
@@ -51,7 +72,6 @@ Stretch only: per-scene generation with the avatar as reference image.
 - `log_progress(session_id, metrics)` → attempts, hits, new words, answer length
 - `notify_parent(session_id, note)` → human-in-the-loop note (e.g. 3 misses on one scene)
 - `voice.transcribe(audio)` / `voice.speak(text)` → ElevenLabs
-- `images.make_avatar(traits)` → fal, returns transparent PNG URL
 
 Difficulty rule: 2 hits in a row → level up (max 3); 2 misses → level down (min 1) + hint;
 3 misses on the same scene → praise the effort, move on, notify_parent.
@@ -59,14 +79,18 @@ Difficulty rule: 2 hits in a row → level up (max 3); 2 misses → level down (
 ### Data contract (fixed — example files in `contract/`)
 `POST /session/start`
 ```json
-{ "child_name": "Mia", "age": 5, "avatar": {"hair": "curly red", "outfit": "yellow raincoat", "pet": "fox", "fav_colour": "green"} }
+{ "child_name": "Mia", "age": 5, "pronouns": "she", "avatar": {"skin_tone": "medium", "hair_style": "curly", "hair_colour": "red", "outfit": "dress", "pet": "fox", "fav_colour": "green"} }
 ```
 →
 ```json
 { "session_id": "abc", "child_id": "mia-1", "avatar_url": "https://.../avatar.png",
   "scene": { "id": "s1", "index": 1, "total": 5, "narration": "...", "narration_audio_url": "https://...",
              "image_url": "https://.../s1.png", "avatar_position": {"x": 0.3, "y": 0.62, "scale": 0.35},
-             "challenge": { "level": 1, "prompt": "Can you say 'forest'?", "target_words": ["forest"] } } }
+             "challenge": { "level": 1, "prompt": "Can you say 'forest'?", "target_words": ["forest"] },
+             "choices": null } }
+```
+`choices` is null, or at a decision point: `[{"word": "bridge", "label": "Cross the bridge", "icon": "bridge"}, {"word": "boat", "label": "Take the boat", "icon": "boat"}]`
+```json
 ```
 `POST /turn` — multipart form: `session_id`, `audio` (webm) — OR JSON `{ "session_id": "abc", "transcript": "forest!" }` for testing
 →
@@ -99,7 +123,7 @@ Change field names only by team agreement; update `contract/` and tell the front
 
 ## Owners
 - **Anvay:** backend (FastAPI, agent loop, tools, deployment, contract), CLAUDE.md, check-ins
-- **Ines:** voice (ElevenLabs STT/TTS), fal avatar + background removal, Adaption stretch (remote after 19:30)
+- **Ines:** voice (ElevenLabs STT/TTS), turn-taking support on the backend, real-time voice + Adaption stretch (remote after 19:30)
 - **Kiko (Francisco):** story.json + scene illustrations, tests, integration checks, Devpost, write-up, deck, demo
 - **Ana:** Figma Make frontend (all screens, mic, audio, dashboard), UX, video, lead presenter
 
