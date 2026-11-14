@@ -118,8 +118,10 @@ CHALLENGE: dict[str, asyncio.Task] = {}  # challenge prompt text -> task giving 
 BACKGROUND: set[asyncio.Task] = set()   # keeps background tasks alive until they finish
 
 
-async def voice(fn, *args, timeout: float = VOICE_TIMEOUT):
-    """Run a blocking voice call with a time limit. Returns None on any failure or timeout."""
+async def voice(fn, *args, timeout: float | None = None):
+    """Run a blocking voice call with a time limit (default VOICE_TIMEOUT, read at call time).
+    Returns None on any failure or timeout."""
+    timeout = VOICE_TIMEOUT if timeout is None else timeout
     started = time.perf_counter()
     try:
         return await asyncio.wait_for(asyncio.to_thread(fn, *args), timeout)
@@ -219,6 +221,15 @@ def challenge_task(text: str) -> asyncio.Task:
             or (task.done() and (task.cancelled() or task.result() is None))):
         task = CHALLENGE[key] = asyncio.create_task(voice(voice_tools.speak, text, timeout=NARRATION_TIMEOUT))
     return task
+
+
+async def challenge_path_within(sess: dict, wait: float) -> str | None:
+    """Like challenge_path, but gives up waiting after `wait` seconds (null audio); the speech
+    task keeps running and is cached for the next request."""
+    try:
+        return await asyncio.wait_for(asyncio.shield(challenge_path(sess)), wait)
+    except asyncio.TimeoutError:
+        return None
 
 
 async def challenge_path(sess: dict) -> str | None:
@@ -335,6 +346,23 @@ def challenge_word(sess: dict, scene: dict) -> str | None:
 
 # ---------- endpoints ----------
 
+def clean_name(value) -> str:
+    """At most 20 characters: letters, spaces and hyphens only. Anything else -> "Friend"."""
+    if not isinstance(value, str):
+        return "Friend"
+    name = "".join(ch for ch in value if ch.isalpha() or ch in " -")
+    name = " ".join(name.split())[:20].strip(" -")
+    return name or "Friend"
+
+
+def clean_practice_words(value) -> list[str]:
+    """Parent focus words and recent tricky words: letters only, lowercased, at most 5."""
+    if not isinstance(value, list):
+        return []
+    words = [w.strip().lower() for w in value if isinstance(w, str)]
+    return list(dict.fromkeys(w for w in words if w.isalpha() and len(w) <= 30))[:5]
+
+
 @app.post("/session/start")
 async def session_start(request: Request):
     try:
@@ -343,7 +371,8 @@ async def session_start(request: Request):
         body = {}
     if not isinstance(body, dict):
         body = {}
-    name = body.get("child_name", "Friend")
+    name = clean_name(body.get("child_name"))
+    practice = clean_practice_words(body.get("practice_words"))
     avatar = body.get("avatar") if isinstance(body.get("avatar"), dict) else {}
     avatar_png = decode_avatar_png(avatar.get("image_png"))
     avatar = {k: v for k, v in avatar.items() if k != "image_png"}  # never stored, only painted
@@ -362,6 +391,7 @@ async def session_start(request: Request):
         "session_id": session_id, "child_id": child_id, "child": child,
         "date": date.today().isoformat(), "stars": 0, "scene_attempts": 0,
         "log": [], "avatar_path": None, **fallback.new_session_state(),
+        "practice_words": practice,
     }
     if avatar_png and painting_enabled():
         traits = avatar_traits(avatar)  # the drawing goes to paint(), never into the session
@@ -394,9 +424,11 @@ async def turn(request: Request):
         except Exception:
             raise HTTPException(400, "Body must be JSON: {\"session_id\": ..., \"transcript\": ...}")
         session_id, transcript = body.get("session_id"), body.get("transcript", "")
+        skip = body.get("skip") is True
     else:
         form = await request.form()
         session_id = form.get("session_id")
+        skip = False
         audio = form.get("audio")
         transcript = ""  # no audio, a failed or slow transcription, or nothing said = silence
         if audio is not None and hasattr(audio, "read"):
@@ -411,12 +443,20 @@ async def turn(request: Request):
     scene = SCENES[sess["scene_id"]]
     challenge = sess["challenge"]
     word = challenge_word(sess, scene)
-    d, meta = await tutor.decide(
-        sess, scene, narration_for(sess, scene), transcript,
-        next_narration=next_speaking_narrations(sess, scene),
-        name_words=name_words(sess),
-        vocab=STORY_VOCAB | name_words(sess) | set(fallback.words(json.dumps(sess["child"]))),
-    )
+    if skip:  # move on with no assessment, no stars and no hit/miss in the log
+        transcript = ""
+        d = fallback._decision(result="skipped", action="skipped", next_id=next_ids(scene)[0],
+                               feedback="Let's see what happens next.", reason="Skipped; moved on without an answer")
+        d["next_challenge"] = None
+        meta = {"source": "rule", "agent_ms": None, "fallback_reason": None,
+                **dict.fromkeys(tutor.USAGE_FIELDS)}
+    else:
+        d, meta = await tutor.decide(
+            sess, scene, narration_for(sess, scene), transcript,
+            next_narration=next_speaking_narrations(sess, scene),
+            name_words=name_words(sess),
+            vocab=STORY_VOCAB | name_words(sess) | set(fallback.words(json.dumps(sess["child"]))),
+        )
 
     # Code-enforced limits (last line of defence; tutor.py has already checked the agent).
     sess["level"] = max(fallback.MIN_LEVEL, min(fallback.MAX_LEVEL, sess["level"]))
@@ -425,7 +465,7 @@ async def turn(request: Request):
         d["next_id"] = allowed[0]
 
     # Stars: 1 for each challenge completed (a hit), +1 if it was the first try in this scene.
-    if d["result"] != "silence":
+    if d["result"] not in ("silence", "skipped"):
         sess["scene_attempts"] += 1
     hit = d["result"] == "hit" and not d["retry"]
     if hit:
@@ -454,7 +494,7 @@ async def turn(request: Request):
     feedback_audio, narration_audio, challenge_audio = await asyncio.gather(
         voice(voice_tools.speak, d["feedback"]),
         narration_path(sess, sess["scene_id"], wait=VOICE_TIMEOUT) if not story_complete else asyncio.sleep(0),
-        challenge_path(sess) if not story_complete else asyncio.sleep(0),
+        challenge_path_within(sess, VOICE_TIMEOUT) if not story_complete else asyncio.sleep(0),
     )
 
     asked = None if story_complete else sess["challenge"]  # the question the child hears next
@@ -473,19 +513,6 @@ async def turn(request: Request):
         "scene": None if story_complete else scene_payload(sess, request, narration_audio, challenge_audio),
         "story_complete": story_complete,
     }
-
-
-MOCK_PROGRESS = {
-    "child_name": "Mia", "sessions": 3, "target_words_hit": 14, "attempts": 20,
-    "new_words": ["forest", "brave"], "avg_answer_length": 2.4,
-    "nightly": [{"date": "2026-11-14", "hits": 5, "attempts": 7}],
-    "parent_notes": ["Struggled with 'lantern' - practise together"],
-    "agent_log": [{"scene": "s2", "action": "retry_with_hint",
-                   "reason": "Answer was not 'sun' (try 1 of 3); gave the authored hint",
-                   "question_type": "choice", "question_reason": "Authored quiz question"}],
-    "summary": {"stars_tonight": 7, "words_practised": ["afternoon", "sun", "lantern"],
-                "needed_help": ["lantern"], "agent_note": "Struggled with 'lantern' - practise together"},
-}
 
 
 def summary(child: dict, child_id: str, logs: list[dict]) -> dict:
@@ -510,7 +537,7 @@ def summary(child: dict, child_id: str, logs: list[dict]) -> dict:
 def progress(child_id: str):
     child = CHILDREN.get(child_id)
     if not child:
-        return MOCK_PROGRESS
+        raise HTTPException(404, "Unknown child_id")
     logs = [e for s in SESSIONS.values() if s["child_id"] == child_id for e in s["log"]]
     attempts = [e for e in logs if e["result"] in ("hit", "miss")]
     hits = [e for e in attempts if e["result"] == "hit"]
@@ -530,6 +557,7 @@ def progress(child_id: str):
         "nightly": list(nightly.values()),
         "parent_notes": [e["parent_note"] for e in logs if e["parent_note"]],
         "agent_log": [{"scene": e["scene_id"], "action": e["action"], "reason": e["reason"],
+                       "source": "agent" if e.get("source") == "agent" else "rule",
                        "question_type": e.get("question_type"), "question_reason": e.get("question_reason")}
                       for e in logs],
         "summary": summary(child, child_id, logs),

@@ -10,6 +10,8 @@ def get_child_state(sess: dict, recent: int = 5) -> dict:
     return {
         "level": sess["level"],
         "words_practised": list(sess["practised"]),
+        # Parent focus words and recent tricky words (from /session/start): prefer them when they occur.
+        "practice_words": list(sess.get("practice_words", [])),
         # Targets only, never the child's words.
         "recent": [{"scene": e["scene_id"], "result": e["result"], "targets": e["targets"]}
                    for e in attempts],

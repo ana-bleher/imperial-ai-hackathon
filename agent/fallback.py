@@ -146,9 +146,13 @@ def nouns(narration: str, exclude: set[str] = frozenset()) -> list[str]:
 
 
 def pick_key_word(narration: str, practised: set[str] = frozenset(),
-                  exclude: set[str] = frozenset()) -> str:
-    """Simple rule: prefer nouns, then any content word (3-9 letters).
-    Skip words already practised when possible."""
+                  exclude: set[str] = frozenset(), prefer: list[str] = ()) -> str:
+    """Simple rule: a practice word (`prefer`) if one occurs in the narration, else prefer nouns,
+    then any content word (3-9 letters). Skip words already practised when possible."""
+    said = set(words(narration))
+    for w in prefer:
+        if w in said and w not in exclude:
+            return w
     candidates = nouns(narration, exclude) + [w for w in words(narration) if _ok_word(w, exclude)]
     fresh = [w for w in candidates if w not in practised]
     if fresh:
@@ -248,7 +252,8 @@ def enter_scene(state: dict, scene: dict, narration: str, exclude: set[str] = fr
     elif kind == SINGLE_CORRECT:
         state["challenge"] = question_challenge(scene, state["level"])
     else:
-        state["key_word"] = pick_key_word(narration, set(state["practised"]), exclude)
+        state["key_word"] = pick_key_word(narration, set(state["practised"]), exclude,
+                                          prefer=state.get("practice_words", []))
         authored = questions.authored_challenge(scene, state["level"])
         if authored:  # the scene's own question comes first
             state["challenge"] = authored
