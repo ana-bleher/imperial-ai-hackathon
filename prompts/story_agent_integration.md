@@ -57,8 +57,8 @@ authored scene entry and the initial challenge at session start.
 - **Endings:** the turn message does not explicitly distinguish completion from
   entry to an authored scene when next narration is absent. Add a terminal flag
   if a reliable personalised goodnight is required; do not make the model guess.
-- **Voice:** voice helpers exist, but `/turn` still mocks multipart input and
-  scene/feedback audio URLs remain null in `agent/main.py`.
+- **Voice:** the latest backend now calls ElevenLabs for transcription and
+  speech, with graceful fallbacks. Measure this separately from model latency.
 
 Further optional context would include the child's age and an explicit terminal
 indicator. If the model is later meant to assess authored questions, also supply
@@ -71,3 +71,34 @@ to check current tool parsing and orchestration with mocked model calls. Those
 tests do not measure live adherence to the prompt: also exercise quiz hits and
 limits, both routes, unclear choices, first/repeated silence, off-topic/personal
 input and endings against the configured model before demoing.
+
+## Prompt size, caching and latency checks
+
+Only `story_agent.md` is sent as the system prompt; this note is not model input.
+The runtime prompt is 779 words, down from 1,356 at `ffaabce` (about 43% fewer),
+consolidating tool/output, authored-decision and safety rules.
+Keep the stable system/tool prefix and its existing `cache_control` unchanged
+between requests; edits create a different cache prefix.
+
+Tutor logs and internal turn metadata now include `input_tokens`, `output_tokens`,
+`cache_creation_input_tokens` and `cache_read_input_tokens`, alongside `agent_ms`
+and fallback reasons. A positive cache-read count verifies reuse; zero means no
+read on that response, while null means usage was unavailable. These fields are
+internal telemetry, not changes to the frontend API.
+
+Use synthetic turns to compare the original and compact prompts:
+
+```powershell
+python tests/benchmark_tutor.py --baseline-ref ffaabce
+python tests/benchmark_tutor.py --baseline-ref ffaabce --live --repeats 2
+```
+
+The first command checks sizes and planned requests without calling the model.
+The second requires `ANTHROPIC_API_KEY` in the process environment and makes
+billable model calls. It never reads `.env`, records child input or calls voice
+services. It alternates prompt order, uses fresh synthetic session state, and
+reports median/p95 model time, fallback/timeout rates, cache hits, token counts
+and scenario checks. Fallback success does not count as accepted model output.
+Inspect failures and live text in a controlled demo as well: the scenario checks
+do not replace a full review of tone and safety. A small sample is exploratory;
+do not claim a production latency improvement from word counts or mocked tests.
