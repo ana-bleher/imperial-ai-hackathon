@@ -107,16 +107,17 @@ TOTAL = max(path_depth(sid) for sid in SCENES)
 STORY_VOCAB = set(fallback.words(json.dumps(STORY)))
 
 VOICE_TIMEOUT = 5  # seconds; a slower voice call returns no audio instead of failing the request
+NARRATION_TIMEOUT = 15  # seconds; narration and challenge audio are longer (first scene on /session/start)
 NARRATION: dict[str, asyncio.Task] = {}  # scene id + narration text -> task giving /static/... path
 CHALLENGE: dict[str, asyncio.Task] = {}  # challenge prompt text -> task giving /static/... path
 BACKGROUND: set[asyncio.Task] = set()   # keeps background tasks alive until they finish
 
 
-async def voice(fn, *args):
+async def voice(fn, *args, timeout: float = VOICE_TIMEOUT):
     """Run a blocking voice call with a time limit. Returns None on any failure or timeout."""
     started = time.perf_counter()
     try:
-        return await asyncio.wait_for(asyncio.to_thread(fn, *args), VOICE_TIMEOUT)
+        return await asyncio.wait_for(asyncio.to_thread(fn, *args), timeout)
     except Exception as e:
         log.warning("voice %s failed after %.1fs: %r", fn.__name__, time.perf_counter() - started, e)
         return None
@@ -155,7 +156,7 @@ def narration_for(sess: dict, scene: dict) -> str:
     """Fill the story's placeholders: {CHILD_NAME}, {PET}, {THEY}, {THEM}, {THEIR}."""
     child = sess["child"]
     they, them, their = PRONOUNS.get(str(child.get("pronouns", "")).lower(), PRONOUNS["they"])
-    pet = (child.get("avatar") or {}).get("pet") or "puppy"
+    pet = pet_of(sess)
     values = {"CHILD_NAME": child["child_name"], "PET": pet, "THEY": they, "THEM": them, "THEIR": their}
 
     def fill(m: re.Match) -> str:
@@ -189,14 +190,19 @@ def narration_task(sess: dict, scene_id: str) -> asyncio.Task:
     task = NARRATION.get(key)
     if (task is None or task.get_loop() is not asyncio.get_running_loop()
             or (task.done() and (task.cancelled() or task.result() is None))):
-        task = NARRATION[key] = asyncio.create_task(voice(voice_tools.speak, text))
+        task = NARRATION[key] = asyncio.create_task(voice(voice_tools.speak, text, timeout=NARRATION_TIMEOUT))
     return task
 
 
-async def narration_path(sess: dict, scene_id: str) -> str | None:
+async def narration_path(sess: dict, scene_id: str, wait: float | None = None) -> str | None:
+    """Audio of a scene's narration. With `wait`, give up after that many seconds and return None,
+    while the (shielded) task keeps running so a later request finds it cached."""
     try:
-        return await narration_task(sess, scene_id)  # bounded by VOICE_TIMEOUT inside voice()
-    except Exception:
+        task = narration_task(sess, scene_id)  # bounded by NARRATION_TIMEOUT inside voice()
+        if wait is None:
+            return await task
+        return await asyncio.wait_for(asyncio.shield(task), wait)
+    except Exception:  # includes the timeout
         return None
 
 
@@ -206,7 +212,7 @@ def challenge_task(text: str) -> asyncio.Task:
     task = CHALLENGE.get(key)
     if (task is None or task.get_loop() is not asyncio.get_running_loop()
             or (task.done() and (task.cancelled() or task.result() is None))):
-        task = CHALLENGE[key] = asyncio.create_task(voice(voice_tools.speak, text))
+        task = CHALLENGE[key] = asyncio.create_task(voice(voice_tools.speak, text, timeout=NARRATION_TIMEOUT))
     return task
 
 
@@ -216,7 +222,7 @@ async def challenge_path(sess: dict) -> str | None:
     if not prompt:
         return None
     try:
-        return await challenge_task(prompt)  # bounded by VOICE_TIMEOUT inside voice()
+        return await challenge_task(prompt)  # bounded by NARRATION_TIMEOUT inside voice()
     except Exception:
         return None
 
@@ -249,6 +255,7 @@ def enter_scene(sess: dict, scene_id: str, challenge: dict | None = None) -> Non
     """Enter a scene. `challenge` is the agent's first challenge for it (checked in agent/tutor.py);
     without one, the fallback rule picks it."""
     scene = SCENES[scene_id]
+    sess["scene_attempts"] = 0  # non-silent answers in this scene, for the first-try star
     fallback.enter_scene(sess, scene, narration_for(sess, scene), exclude=name_words(sess))
     if challenge and fallback.decision_type(scene) is None:
         sess["challenge"] = challenge
@@ -261,6 +268,25 @@ def next_speaking_narration(sess: dict, scene: dict) -> str | None:
     if scene.get("branches") or not nxt or fallback.decision_type(SCENES[nxt]) is not None:
         return None
     return narration_for(sess, SCENES[nxt])
+
+
+def pet_of(sess: dict) -> str:
+    return (sess["child"].get("avatar") or {}).get("pet") or "puppy"
+
+
+def goodnight(sess: dict) -> str:
+    """The final feedback when the story completes: one short goodnight with the child's name and pet."""
+    return f"Goodnight, {sess['child']['child_name']}, sweet dreams to you and your {pet_of(sess)}."
+
+
+def challenge_word(sess: dict, scene: dict) -> str | None:
+    """The learning word of the current challenge (None on a branch choice: that is a preference)."""
+    kind = fallback.decision_type(scene)
+    if kind == fallback.SINGLE_CORRECT:
+        return scene["decision"]["correct_word"]
+    if kind == fallback.BRANCH_CHOICE:
+        return None
+    return sess["key_word"] or tutor.key_word_of(sess["challenge"]["target_words"])
 
 
 # ---------- endpoints ----------
@@ -287,14 +313,18 @@ async def session_start(request: Request):
     session_id = uuid.uuid4().hex[:12]
     sess = {
         "session_id": session_id, "child_id": child_id, "child": child,
+        "date": date.today().isoformat(), "stars": 0, "scene_attempts": 0,
         "log": [], **fallback.new_session_state(),
     }
-    enter_scene(sess, START)
+    in_background(tutor.warm_up())  # so the first /turn does not pay for a cold Anthropic connection
+    resume = body.get("resume_scene_id")
+    first = resume if isinstance(resume, str) and resume in SCENES else START  # invalid: ignored
+    enter_scene(sess, first)
     SESSIONS[session_id] = sess
     first_audio, first_challenge_audio = await asyncio.gather(  # first scene's audio is ready in the response
-        narration_path(sess, START), challenge_path(sess))
+        narration_path(sess, first), challenge_path(sess))
     in_background(speak_all_narration(sess))         # the rest is generated while the child listens
-    return {"session_id": session_id, "child_id": child_id, "avatar_url": None,
+    return {"session_id": session_id, "child_id": child_id, "avatar_url": None, "stars": 0,
             "scene": scene_payload(sess, request, first_audio, first_challenge_audio)}
 
 
@@ -323,6 +353,7 @@ async def turn(request: Request):
 
     scene = SCENES[sess["scene_id"]]
     challenge = sess["challenge"]
+    word = challenge_word(sess, scene)
     d, meta = await tutor.decide(
         sess, scene, narration_for(sess, scene), transcript,
         next_narration=next_speaking_narration(sess, scene),
@@ -336,15 +367,27 @@ async def turn(request: Request):
     if not d["retry"] and d["next_id"] not in allowed:
         d["next_id"] = allowed[0]
 
+    # Stars: 1 for each challenge completed (a hit), +1 if it was the first try in this scene.
+    if d["result"] != "silence":
+        sess["scene_attempts"] += 1
+    hit = d["result"] == "hit" and not d["retry"]
+    if hit:
+        sess["stars"] += 1 + (sess["scene_attempts"] == 1)
+
+    # Privacy: the child's words are never stored or logged, only which target matched and a count.
     entry = {
         "result": d["log_result"], "action": d["action"],
-        "date": date.today().isoformat(), "scene_id": scene["id"], "transcript": transcript,
+        "date": date.today().isoformat(), "scene_id": scene["id"], "word": word,
+        "matched_word": (d.get("chosen") or word) if hit else None,
+        "word_count": len(fallback.words(transcript)),
         "targets": [d["chosen"]] if d.get("chosen") else d["targets"] or challenge["target_words"],
         "level": challenge["level"], "new_level": sess["level"], "tries": sess["tries"],
         "parent_note": d["parent_note"], "reason": d["reason"], **meta,
     }
 
     story_complete = not d["retry"] and d["next_id"] is None
+    if story_complete:
+        d["feedback"] = goodnight(sess)
     if d["retry"]:
         sess["challenge"] = d["challenge"]
     elif d["next_id"]:
@@ -353,7 +396,7 @@ async def turn(request: Request):
     # Feedback speech, the next scene's narration (usually cached already) and the challenge in parallel.
     feedback_audio, narration_audio, challenge_audio = await asyncio.gather(
         voice(voice_tools.speak, d["feedback"]),
-        narration_path(sess, sess["scene_id"]) if not story_complete else asyncio.sleep(0),
+        narration_path(sess, sess["scene_id"], wait=VOICE_TIMEOUT) if not story_complete else asyncio.sleep(0),
         challenge_path(sess) if not story_complete else asyncio.sleep(0),
     )
 
@@ -366,7 +409,7 @@ async def turn(request: Request):
     return {
         "transcript": transcript, "result": d["result"], "feedback": d["feedback"],
         "feedback_audio_url": audio_url(request, feedback_audio),
-        "retry": d["retry"],
+        "retry": d["retry"], "stars": sess["stars"],
         "scene": None if story_complete else scene_payload(sess, request, narration_audio, challenge_audio),
         "story_complete": story_complete,
     }
@@ -379,7 +422,27 @@ MOCK_PROGRESS = {
     "parent_notes": ["Struggled with 'lantern' - practise together"],
     "agent_log": [{"scene": "s2", "action": "retry_with_hint",
                    "reason": "Answer was not 'sun' (try 1 of 3); gave the authored hint"}],
+    "summary": {"stars_tonight": 7, "words_practised": ["afternoon", "sun", "lantern"],
+                "needed_help": ["lantern"], "agent_note": "Struggled with 'lantern' - practise together"},
 }
+
+
+def summary(child: dict, child_id: str, logs: list[dict]) -> dict:
+    today = date.today().isoformat()
+    tonight = [e for e in logs if e["date"] == today and e["result"] in ("hit", "miss") and e.get("word")]
+    stars = sum(s["stars"] for s in SESSIONS.values() if s["child_id"] == child_id and s["date"] == today)
+    practised = list(dict.fromkeys(e["word"] for e in tonight))
+    needed_help = list(dict.fromkeys(e["word"] for e in tonight if e["result"] == "miss"))
+    notes = [e["parent_note"] for e in logs if e["parent_note"]]
+    if notes:
+        note = notes[-1]
+    else:
+        note = (f"{child['child_name']} practised {len(practised)} "
+                f"word{'s' if len(practised) != 1 else ''} tonight and earned {stars} "
+                f"star{'s' if stars != 1 else ''}"
+                + (f", needing a little help with {len(needed_help)}." if needed_help else ", all without help."))
+    return {"stars_tonight": stars, "words_practised": practised,
+            "needed_help": needed_help, "agent_note": note}
 
 
 @app.get("/progress/{child_id}")
@@ -401,9 +464,10 @@ def progress(child_id: str):
         "target_words_hit": len(hits),
         "attempts": len(attempts),
         "new_words": sorted({w for e in hits for w in e["targets"]}),
-        "avg_answer_length": round(sum(len(fallback.words(e["transcript"])) for e in attempts) / len(attempts), 1)
+        "avg_answer_length": round(sum(e["word_count"] for e in attempts) / len(attempts), 1)
                              if attempts else 0,
         "nightly": list(nightly.values()),
         "parent_notes": [e["parent_note"] for e in logs if e["parent_note"]],
         "agent_log": [{"scene": e["scene_id"], "action": e["action"], "reason": e["reason"]} for e in logs],
+        "summary": summary(child, child_id, logs),
     }

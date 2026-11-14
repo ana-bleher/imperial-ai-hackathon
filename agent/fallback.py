@@ -11,6 +11,8 @@ Rules (CLAUDE.md), by the scene's decision type:
   Neither, second time: propose one. Then "yes" takes it, "no" takes the other, anything else
   takes the proposed one. Never counted as a miss.
 - First silence in a scene is never a miss: "Shall we try together?"
+- Negations and self-corrections ("not sun... moon", "sun, no, moon", "sun... I mean moon"):
+  judge the last word the child settled on (settled_words).
 
 State lives in the session dict (see new_session_state / enter_scene).
 `turn()` mutates it and returns a decision dict; agent/main.py applies the decision.
@@ -53,6 +55,32 @@ def words(text: str) -> list[str]:
     return re.findall(r"[a-z']+", (text or "").lower())
 
 
+# "sun, no, moon" / "sun... I mean moon": only what comes after the last of these counts.
+CORRECTIONS = ("i mean", "i meant", "no", "nope", "actually", "wait", "oops", "sorry")
+
+
+def settled_words(transcript: str) -> list[str]:
+    """The words the child settled on: drop everything before the last self-correction, then drop
+    negated words ("not sun", "not the sun"). Falls back to the plain words if nothing is left."""
+    said = words(transcript)
+    text = " " + " ".join(said) + " "
+    cut = max((text.rfind(f" {m} ") + len(m) + 1 for m in CORRECTIONS if f" {m} " in text), default=0)
+    kept = text[cut:].split() if cut else said
+    if not kept:  # "moon, no": nothing after the correction, keep what came before it
+        kept = text[:cut].split()[:-1] if cut else said
+    out, i = [], 0
+    while i < len(kept):
+        if kept[i] in ("not", "don't", "isn't"):
+            i += 1
+            while i < len(kept) and kept[i] in STOPWORDS:  # "not the sun": skip to the content word
+                i += 1
+            i += 1  # the negated word itself
+            continue
+        out.append(kept[i])
+        i += 1
+    return out or said
+
+
 def similar(target: str, said: str) -> bool:
     """Generous match: exact, or close enough for words of 4+ letters ("fowest" ~ "forest")."""
     if target == said:
@@ -67,8 +95,9 @@ def heard(target: str, said: list[str]) -> bool:
 
 
 def is_hit(transcript: str, targets: list[str]) -> bool:
-    """A hit means most of the target words were heard (all of them for 1-2 words)."""
-    said = words(transcript)
+    """A hit means most of the target words were heard (all of them for 1-2 words),
+    judged on the words the child settled on."""
+    said = settled_words(transcript)
     if not targets or not said:
         return False
     found = sum(heard(t, said) for t in targets)
@@ -297,7 +326,8 @@ def _question_turn(state: dict, scene: dict, transcript: str) -> dict:
                              reason="First silence: repeated the question, not counted as a miss")
 
     state["tries"] += 1
-    if heard(correct, said) and not any(heard(o, said) for o in others):
+    settled = settled_words(transcript)
+    if heard(correct, settled) and not any(heard(o, settled) for o in others):
         return _decision(result="hit", action="advance", next_id=scene.get("next"), targets=[correct],
                          feedback=f"Yes, the {correct}! Well done!",
                          reason=f"Answered '{correct}' correctly on try {state['tries']}")
@@ -330,7 +360,7 @@ def _branch_turn(state: dict, scene: dict, transcript: str) -> dict:
     branches = scene["branches"]
     said = words(transcript)
 
-    chosen = _match_branch(scene, said)
+    chosen = _match_branch(scene, settled_words(transcript))
     if chosen:
         return _decision(result="hit", action="advance", next_id=chosen["next"],
                          feedback=f"You said '{chosen['word']}'! Let's go!", chosen=chosen["word"],
