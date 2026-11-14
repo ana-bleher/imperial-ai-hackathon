@@ -15,6 +15,12 @@ def no_real_agent(monkeypatch):
         return None
     monkeypatch.setattr(tutor, "warm_up", no_warm_up)
 
+    from agent import adventure
+
+    async def no_pages(message):
+        raise RuntimeError("no network in tests")
+    monkeypatch.setattr(adventure, "call_model", no_pages)  # adventure pages: never call Claude
+
 
 @pytest.fixture(autouse=True)
 def no_real_voice(monkeypatch):

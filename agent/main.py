@@ -26,7 +26,7 @@ from dotenv import load_dotenv
 
 load_dotenv()  # ANTHROPIC_API_KEY for the tutor agent (never committed)
 
-from agent import fallback, questions, tutor  # noqa: E402
+from agent import adventure, fallback, questions, tutor  # noqa: E402
 from tools import paint_avatar  # noqa: E402
 from tools import voice as voice_tools  # noqa: E402
 
@@ -85,6 +85,13 @@ STORY = load_story()
 SCENES = {s["id"]: s for s in STORY["scenes"]}
 START = STORY.get("start_scene") or STORY["scenes"][0]["id"]
 DEFAULT_AVATAR_POSITION = {"x": 0.3, "y": 0.62, "scale": 0.35}
+
+
+def scene_of(sess: dict, scene_id: str) -> dict:
+    """A scene of this session's story: its own adventure pages, or the Pip story's SCENES."""
+    if sess.get("story") == "adventure":
+        return sess["scenes"][scene_id]
+    return SCENES[scene_id]
 
 
 def next_ids(scene: dict) -> list[str | None]:
@@ -192,7 +199,7 @@ def audio_url(request: Request, path: str | None) -> str | None:
 
 def narration_task(sess: dict, scene_id: str) -> asyncio.Task:
     """The (cached) task speaking this child's narration of a scene. Failed tasks are retried."""
-    text = narration_for(sess, SCENES[scene_id])
+    text = narration_for(sess, scene_of(sess, scene_id))
     key = f"{scene_id}:{hashlib.sha1(text.encode()).hexdigest()[:12]}"
     task = NARRATION.get(key)
     if (task is None or task.get_loop() is not asyncio.get_running_loop()
@@ -254,15 +261,16 @@ PUBLIC_CHALLENGE_KEYS = ("level", "prompt", "target_words")  # the contract; acc
 
 def scene_payload(sess: dict, request: Request, narration_audio: str | None = None,
                   challenge_audio: str | None = None) -> dict:
-    scene = SCENES[sess["scene_id"]]
+    scene = scene_of(sess, sess["scene_id"])
     base = base_url(request)
+    is_page = sess.get("story") == "adventure"
     return {
         "id": scene["id"],
-        "index": path_depth(scene["id"]),
-        "total": TOTAL,
+        "index": scene["page"] if is_page else path_depth(scene["id"]),
+        "total": adventure.PAGES if is_page else TOTAL,
         "narration": narration_for(sess, scene),
         "narration_audio_url": audio_url(request, narration_audio),
-        "image_url": f"{base}/static/scenes/{scene['id']}.jpg",
+        "image_url": f"{base}{scene['image_path']}" if is_page else f"{base}/static/scenes/{scene['id']}.jpg",
         "avatar_position": scene.get("avatar_position") or DEFAULT_AVATAR_POSITION,
         "challenge": {k: sess["challenge"][k] for k in PUBLIC_CHALLENGE_KEYS},
         "challenge_audio_url": audio_url(request, challenge_audio),
@@ -309,7 +317,7 @@ def enter_scene(sess: dict, scene_id: str, challenge: dict | None = None) -> Non
     """Enter a scene. `challenge` is the agent's first question for it (checked in agent/tutor.py).
     Without one (session start, or the agent was slow, invalid or did not ask) the fallback rule
     uses the scene's authored question, or a say challenge from the narration."""
-    scene = SCENES[scene_id]
+    scene = scene_of(sess, scene_id)
     sess["scene_attempts"] = 0  # non-silent answers in this scene, for the first-try star
     fallback.enter_scene(sess, scene, narration_for(sess, scene), exclude=name_words(sess))
     if challenge and fallback.decision_type(scene) is None:
@@ -320,7 +328,10 @@ def enter_scene(sess: dict, scene_id: str, challenge: dict | None = None) -> Non
 
 def next_speaking_narrations(sess: dict, scene: dict) -> dict[str, str]:
     """Narration of each possible next scene whose question the agent sets (no authored decision),
-    including every branch destination."""
+    including every branch destination. None for adventures: their pages are written as the
+    child chooses, and page 4 has its authored goodnight challenge."""
+    if sess.get("story") == "adventure":
+        return {}
     return {nid: narration_for(sess, SCENES[nid]) for nid in next_ids(scene)
             if nid and fallback.decision_type(SCENES[nid]) is None}
 
@@ -363,6 +374,65 @@ def clean_practice_words(value) -> list[str]:
     return list(dict.fromkeys(w for w in words if w.isalpha() and len(w) <= 30))[:5]
 
 
+def adventure_enabled() -> bool:
+    """ADVENTURE=0 turns the adventure mode off: "story": "adventure" then starts the Pip story."""
+    return os.getenv("ADVENTURE", "1").strip() != "0"
+
+
+PAGE_WAIT = 8.0  # seconds a choice waits for a page still being written, then a fallback page
+
+
+def story_so_far(sess: dict, scene_id: str | None) -> list[dict]:
+    pages = []
+    while scene_id:
+        scene = sess["scenes"][scene_id]
+        pages.append(scene)
+        scene_id = scene["parent"]
+    return pages[::-1]
+
+
+async def write_page(sess: dict, parent_id: str, branch: dict) -> dict:
+    """Write the page behind one choice, store it, then speak its narration (one call per page)."""
+    parent = sess["scenes"][parent_id]
+    page, scene_id = parent["page"] + 1, branch["next"]
+    data, why = await adventure.generate_page(page, story_so_far(sess, parent_id), pet_of(sess), branch)
+    scene = sess["scenes"].setdefault(  # a fallback page already used wins over a late one
+        scene_id, adventure.build_scene(page, scene_id, data, parent=parent_id, fallback=why is not None))
+    await narration_path(sess, scene_id)
+    return scene
+
+
+def prefetch_pages(sess: dict, scene_id: str) -> None:
+    """When a page is shown, start writing BOTH next pages in parallel."""
+    scene = sess["scenes"][scene_id]
+    for branch in scene.get("branches", []):
+        if branch["next"] not in sess["scenes"]:
+            task = asyncio.create_task(write_page(sess, scene_id, branch))
+            sess["page_tasks"][branch["next"]] = task
+            BACKGROUND.add(task)
+            task.add_done_callback(BACKGROUND.discard)
+
+
+async def ensure_page(sess: dict, parent: dict, next_id: str) -> None:
+    """The chosen page: ready (prefetched), or wait up to PAGE_WAIT, then a fallback page."""
+    if next_id in sess["scenes"]:
+        return
+    branch = next(b for b in parent["branches"] if b["next"] == next_id)
+    task = sess["page_tasks"].get(next_id)
+    if task is None or task.get_loop() is not asyncio.get_running_loop():
+        task = sess["page_tasks"][next_id] = asyncio.create_task(write_page(sess, parent["id"], branch))
+        BACKGROUND.add(task)
+        task.add_done_callback(BACKGROUND.discard)
+    try:
+        await asyncio.wait_for(asyncio.shield(task), PAGE_WAIT)
+    except Exception:  # includes the timeout; the task may still finish, but this page is set now
+        pass
+    if next_id not in sess["scenes"]:
+        page = parent["page"] + 1
+        sess["scenes"][next_id] = adventure.build_scene(
+            page, next_id, adventure.fallback_page(page, branch), parent=parent["id"], fallback=True)
+
+
 @app.post("/session/start")
 async def session_start(request: Request):
     try:
@@ -399,16 +469,29 @@ async def session_start(request: Request):
         if sess["avatar_path"] is None:
             in_background(paint_avatar_for(sess, avatar_png, traits))  # never blocks the response
     in_background(tutor.warm_up())  # so the first /turn does not pay for a cold Anthropic connection
-    resume = body.get("resume_scene_id")
-    first = resume if isinstance(resume, str) and resume in SCENES else START  # invalid: ignored
+    is_adventure = body.get("story") == "adventure" and adventure_enabled()
+    sess["story"] = "adventure" if is_adventure else "pip"
+    if is_adventure:  # page 1 is written now (fallback opening after GENERATE_TIMEOUT)
+        sess["scenes"], sess["page_tasks"] = {}, {}
+        data, why = await adventure.generate_page(1, [], pet_of(sess), None)
+        first = "a1"
+        sess["scenes"][first] = adventure.build_scene(1, first, data, fallback=why is not None)
+        title = adventure.TITLE
+    else:
+        resume = body.get("resume_scene_id")
+        first = resume if isinstance(resume, str) and resume in SCENES else START  # invalid: ignored
+        title = STORY["title"]
     enter_scene(sess, first)
     SESSIONS[session_id] = sess
-    intro_text = (f"{STORY['title']}. Hello {name}! Are you ready for tonight's bedtime story? "
+    intro_text = (f"{title}. Hello {name}! Are you ready for tonight's bedtime story? "
                   "Snuggle in, and when you're ready, open the book.")  # read on the book cover
     first_audio, first_challenge_audio, intro_audio = await asyncio.gather(  # ready in the response
         narration_path(sess, first), challenge_path(sess),
         voice(voice_tools.speak, intro_text, timeout=NARRATION_TIMEOUT))
-    in_background(speak_all_narration(sess))         # the rest is generated while the child listens
+    if is_adventure:
+        prefetch_pages(sess, first)                  # both possible page 2s, while page 1 is read
+    else:
+        in_background(speak_all_narration(sess))     # the rest is generated while the child listens
     return {"session_id": session_id, "child_id": child_id, "stars": 0,
             "avatar_url": audio_url(request, sess["avatar_path"]),  # set now only if already painted
             "intro": {"text": intro_text, "audio_url": audio_url(request, intro_audio)},
@@ -440,7 +523,7 @@ async def turn(request: Request):
     if not sess:
         raise HTTPException(404, "Unknown session_id")
 
-    scene = SCENES[sess["scene_id"]]
+    scene = scene_of(sess, sess["scene_id"])
     challenge = sess["challenge"]
     word = challenge_word(sess, scene)
     if skip:  # move on with no assessment, no stars and no hit/miss in the log
@@ -455,7 +538,8 @@ async def turn(request: Request):
             sess, scene, narration_for(sess, scene), transcript,
             next_narration=next_speaking_narrations(sess, scene),
             name_words=name_words(sess),
-            vocab=STORY_VOCAB | name_words(sess) | set(fallback.words(json.dumps(sess["child"]))),
+            vocab=STORY_VOCAB | name_words(sess) | set(fallback.words(json.dumps(sess["child"])))
+            | set(fallback.words(json.dumps(list(sess.get("scenes", {}).values())))),
         )
 
     # Code-enforced limits (last line of defence; tutor.py has already checked the agent).
@@ -480,6 +564,7 @@ async def turn(request: Request):
         "targets": [d["chosen"]] if d.get("chosen") else d["targets"] or challenge["target_words"],
         "level": challenge["level"], "new_level": sess["level"], "tries": sess["tries"],
         "parent_note": d["parent_note"], "reason": d["reason"], **meta,
+        "story": sess["story"], "background": scene.get("background_id"),
     }
 
     story_complete = not d["retry"] and d["next_id"] is None
@@ -488,7 +573,11 @@ async def turn(request: Request):
     if d["retry"]:
         sess["challenge"] = d["challenge"]
     elif d["next_id"]:
+        if sess["story"] == "adventure":
+            await ensure_page(sess, scene, d["next_id"])
         enter_scene(sess, d["next_id"], d.get("next_challenge"))
+        if sess["story"] == "adventure":
+            prefetch_pages(sess, d["next_id"])
 
     # Feedback speech, the next scene's narration (usually cached already) and the challenge in parallel.
     feedback_audio, narration_audio, challenge_audio = await asyncio.gather(
@@ -558,6 +647,7 @@ def progress(child_id: str):
         "parent_notes": [e["parent_note"] for e in logs if e["parent_note"]],
         "agent_log": [{"scene": e["scene_id"], "action": e["action"], "reason": e["reason"],
                        "source": "agent" if e.get("source") == "agent" else "rule",
+                       "story": e.get("story", "pip"), "background": e.get("background"),
                        "question_type": e.get("question_type"), "question_reason": e.get("question_reason")}
                       for e in logs],
         "summary": summary(child, child_id, logs),
