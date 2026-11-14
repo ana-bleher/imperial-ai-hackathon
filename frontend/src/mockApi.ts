@@ -10,6 +10,7 @@ export type ApiChild = {
     hair_colour: string;
     outfit: string;
     pet: string;
+    image_png?: string; // base64 PNG of the drawn avatar, repainted on fal by the backend
   };
 };
 
@@ -23,6 +24,7 @@ export type Scene = {
   avatar_position: { x: number; y: number; scale: number };
   challenge: { level: 1 | 2 | 3; prompt: string; target_words: string[] };
   challenge_audio_url?: string | null;
+  avatar_url?: string | null; // painted (watercolour) avatar, once fal has finished
   choices: null | { word: string; label: string; icon: string }[];
 };
 

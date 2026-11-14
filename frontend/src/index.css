@@ -3710,3 +3710,7 @@ html.night .needs-practice-chip {
 .bed-avatar-body .avatar svg {
   filter: url(#watercolor) saturate(0.72) brightness(1.08) contrast(0.9) sepia(0.08);
 }
+
+/* Painted (fal) avatar */
+.painted-avatar { width: 100%; height: 100%; object-fit: contain; display: block; }
+.avatar-snapshot { position: absolute; left: -9999px; top: 0; width: 160px; height: 190px; pointer-events: none; }

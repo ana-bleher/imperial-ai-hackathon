@@ -212,6 +212,38 @@ function WatercolorFilter() {
   );
 }
 
+// Snapshot of the child's drawn avatar (SVG -> PNG, base64) that the backend repaints in watercolour on fal.
+async function avatarToPng(container: HTMLElement | null): Promise<string | null> {
+  const svg = container?.querySelector("svg");
+  if (!svg) return null;
+  try {
+    const clone = svg.cloneNode(true) as SVGSVGElement;
+    clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+    clone.setAttribute("width", "640");
+    clone.setAttribute("height", "760");
+    const blob = new Blob([new XMLSerializer().serializeToString(clone)], { type: "image/svg+xml" });
+    const url = URL.createObjectURL(blob);
+    const img = new Image();
+    await new Promise<void>((resolve, reject) => {
+      img.onload = () => resolve();
+      img.onerror = () => reject(new Error("avatar render failed"));
+      img.src = url;
+    });
+    const canvas = document.createElement("canvas");
+    canvas.width = 640;
+    canvas.height = 760;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, 640, 760);
+    ctx.drawImage(img, 0, 0, 640, 760);
+    URL.revokeObjectURL(url);
+    return canvas.toDataURL("image/png").split(",")[1] ?? null;
+  } catch {
+    return null;
+  }
+}
+
 // Pip, the tiny firefly with a lantern, who guides the story.
 function Pip({ sleeping = false }: { sleeping?: boolean }) {
   return (
@@ -1306,6 +1338,8 @@ function StoryScene({
   // picture that loads instantly can never be marked "loading" again afterwards.
   const [loadedImage, setLoadedImage] = useState<string | null>(null);
   const [titleCard, setTitleCard] = useState(false);
+  const [paintedAvatar, setPaintedAvatar] = useState<string | null>(null);
+  const avatarSnapshotRef = useRef<HTMLDivElement | null>(null);
   const [failedImage, setFailedImage] = useState<string | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -1320,6 +1354,7 @@ function StoryScene({
   const speechRunRef = useRef(0);
 
   const setCurrentScene = (nextScene: Scene) => {
+    if (nextScene.avatar_url) setPaintedAvatar(nextScene.avatar_url);
     sceneRef.current = nextScene;
     setScene(nextScene);
   };
@@ -1789,6 +1824,7 @@ function StoryScene({
           .catch(() => setMicBlocked(true))
       : Promise.resolve(setMicBlocked(true));
 
+    const imagePng = await avatarToPng(avatarSnapshotRef.current);
     const response = await startSession({
       child_name: child.name,
       age: child.age,
@@ -1799,8 +1835,10 @@ function StoryScene({
         hair_colour: child.hairColor,
         outfit: child.outfit,
         pet: child.friend,
+        ...(imagePng ? { image_png: imagePng } : {}),
       },
     });
+    if (response.avatar_url) setPaintedAvatar(response.avatar_url);
     window.clearTimeout(wakingTimer);
     setOfflineDemo(isOfflineDemo());
     await microphone;
@@ -1929,6 +1967,9 @@ function StoryScene({
   if (!started) {
     return (
       <main className="story-start page-enter">
+        <div ref={avatarSnapshotRef} className="avatar-snapshot" aria-hidden="true">
+          <Avatar child={child} />
+        </div>
         <StarField count={28} />
         <div className="story-start-content">
           <Logo />
@@ -2005,7 +2046,11 @@ function StoryScene({
               }}
             >
               <div className="bed-avatar-body">
-                <Avatar child={child} />
+                {paintedAvatar ? (
+                  <img className="painted-avatar" src={paintedAvatar} alt={`${child.name}'s avatar`} />
+                ) : (
+                  <Avatar child={child} />
+                )}
               </div>
               <span className="bed-blanket" aria-hidden="true" />
               <span className="bed-zzz" aria-hidden="true">z z z</span>
@@ -2046,7 +2091,11 @@ function StoryScene({
             <Pip />
           </div>
           <div className="scene-avatar-person">
-            <Avatar child={child} />
+            {paintedAvatar ? (
+              <img className="painted-avatar" src={paintedAvatar} alt={`${child.name}'s avatar`} />
+            ) : (
+              <Avatar child={child} />
+            )}
           </div>
           <div className="scene-avatar-friend" aria-hidden="true">
             <AnimalIllustration animal={child.friend} />

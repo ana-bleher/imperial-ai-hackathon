@@ -12,3 +12,4 @@ elevenlabs
 pytest
 
 httpx
+fal-client
