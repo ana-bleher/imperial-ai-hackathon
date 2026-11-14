@@ -141,16 +141,16 @@ behaviour; they are not executable instructions.
 returns
 ```json
 { "session_id": "abc", "child_id": "mia-1", "avatar_url": null,
-  "scene": { "id": "s1", "index": 1, "total": 5, "narration": "...", "narration_audio_url": "https://...",
-             "image_url": "https://.../s1.png", "avatar_position": {"x": 0.3, "y": 0.62, "scale": 0.35},
-             "challenge": { "level": 1, "prompt": "Can you say 'forest'?", "target_words": ["forest"] },
+  "scene": { "id": "s1", "index": 1, "total": 5, "narration": "...", "narration_audio_url": null,
+             "image_url": "https://.../s1.png", "avatar_position": {"x": 0.26, "y": 0.64, "scale": 0.32},
+             "challenge": { "level": 1, "prompt": "Can you say 'afternoon'?", "target_words": ["afternoon"] },
              "choices": null } }
 ```
 `POST /turn`: multipart form with `session_id` and `audio`, OR JSON
-`{ "session_id": "abc", "transcript": "forest!" }` for testing. Returns
+`{ "session_id": "abc", "transcript": "afternoon!" }` for testing. Returns
 ```json
-{ "transcript": "forest", "result": "hit", "feedback": "You said forest!",
-  "feedback_audio_url": "https://...", "retry": false, "scene": { "...same shape as above..." },
+{ "transcript": "afternoon", "result": "hit", "feedback": "You said 'afternoon'!",
+  "feedback_audio_url": null, "retry": false, "scene": { "...same shape as above..." },
   "story_complete": false }
 ```
 `retry: true` means stay on the same scene; `scene` repeats with the new challenge.
@@ -160,12 +160,21 @@ returns
 { "child_name": "Mia", "sessions": 3, "target_words_hit": 14, "attempts": 20,
   "new_words": ["forest", "brave"], "avg_answer_length": 2.4,
   "nightly": [{"date": "2026-11-14", "hits": 5, "attempts": 7}],
-  "parent_notes": ["Struggled with 'lantern' - practise together"] }
+  "parent_notes": ["Struggled with 'lantern' - practise together"],
+  "agent_log": [{"scene": "s2", "action": "retry_with_hint",
+                 "reason": "Answer was not 'sun' (try 1 of 3); gave the authored hint"}] }
 ```
+`agent_log` is optional: one entry per logged decision (`action` is advance, retry, retry_with_hint
+or move_on). Reasons never quote the child's words.
 `avatar_url` is null: the frontend draws the avatar from `pronouns` and `avatar`; the backend only stores them.
-`choices` is null on ordinary scenes. On branch scenes it lists the options for the tap cards:
-`[{"word": "lantern", "label": "Lift the lantern", "icon": "lantern"}, {"word": "owl", "label": "Ask the owl", "icon": "owl"}]`.
-`word` must match the branch words in `story.json`, so branches there carry `label` and `icon` too. Change field names only by team
+`narration_audio_url` and `feedback_audio_url` are null until real audio exists; show the text meanwhile.
+`scene.avatar_position` comes from the scene in `story.json` (default `{"x": 0.3, "y": 0.62, "scale": 0.35}`).
+Narration placeholders `{CHILD_NAME}`, `{PET}`, `{THEY}`, `{THEM}`, `{THEIR}` are filled from `/session/start`.
+`choices` lists the tap cards, each `{"word", "label", "icon"}`: the `decision.options` on `single_correct`
+scenes, the `branches` on `branch_choice` scenes, and null otherwise. Example (s3):
+`[{"word": "bridge", "label": "Cross the bridge", "icon": "bridge"}, {"word": "boat", "label": "Take the boat", "icon": "boat"}]`.
+On `single_correct` scenes `challenge.target_words` lists all the options, so the screen never gives the answer away.
+`word` must match the words in `story.json`, so options and branches there carry `label` and `icon` too. Change field names only by team
 agreement, then update `contract/` and tell Ana.
 
 ## Audio

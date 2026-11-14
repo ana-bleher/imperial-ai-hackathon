@@ -1,0 +1,5 @@
+{
+  "_note": "Real voice turns send multipart/form-data, not JSON. Fields below; audio is any browser format.",
+  "session_id": "abc",
+  "audio": "<binary audio file, e.g. clip.webm>"
+}

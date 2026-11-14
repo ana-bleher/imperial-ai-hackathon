@@ -1,0 +1,14 @@
+{
+  "child_name": "Mia",
+  "sessions": 3,
+  "target_words_hit": 14,
+  "attempts": 20,
+  "new_words": ["forest", "brave"],
+  "avg_answer_length": 2.4,
+  "nightly": [{"date": "2026-11-14", "hits": 5, "attempts": 7}],
+  "parent_notes": ["Struggled with 'lantern' - practise together"],
+  "agent_log": [
+    {"scene": "s2", "action": "retry_with_hint", "reason": "Answer was not 'sun' (try 1 of 3); gave the authored hint"},
+    {"scene": "s2", "action": "advance", "reason": "Answered 'sun' correctly on try 2"}
+  ]
+}
