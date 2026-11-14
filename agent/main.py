@@ -243,7 +243,12 @@ def next_speaking_narration(sess: dict, scene: dict) -> str | None:
 
 @app.post("/session/start")
 async def session_start(request: Request):
-    body = await request.json()
+    try:
+        body = await request.json()
+    except Exception:  # empty or non-JSON body: start with defaults instead of a 500
+        body = {}
+    if not isinstance(body, dict):
+        body = {}
     name = body.get("child_name", "Friend")
     child_id = f"{re.sub(r'[^a-z0-9]+', '-', name.lower()).strip('-') or 'child'}-1"
     child = {
@@ -272,7 +277,10 @@ async def session_start(request: Request):
 async def turn(request: Request):
     started = time.perf_counter()
     if request.headers.get("content-type", "").startswith("application/json"):
-        body = await request.json()
+        try:
+            body = await request.json()
+        except Exception:
+            raise HTTPException(400, "Body must be JSON: {\"session_id\": ..., \"transcript\": ...}")
         session_id, transcript = body.get("session_id"), body.get("transcript", "")
     else:
         form = await request.form()
