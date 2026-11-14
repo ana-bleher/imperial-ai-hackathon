@@ -44,13 +44,31 @@ class InvalidAgentOutput(ValueError):
     pass
 
 
-async def call_model(messages: list[dict]):
-    """The one Anthropic call per turn. Tests replace this function."""
+def client():
     global _client
     if _client is None:
         import anthropic
         _client = anthropic.AsyncAnthropic(timeout=TIMEOUT_S, max_retries=0)
-    return await _client.messages.create(
+    return _client
+
+
+async def warm_up() -> None:
+    """A tiny call fired in the background on /session/start, so the first /turn does not pay for
+    a cold connection. Uses the same system prompt and tools, so it also primes the prompt cache.
+    Never raises. Tests replace this function."""
+    try:
+        await client().messages.create(
+            model=MODEL, max_tokens=1,
+            system=[{"type": "text", "text": SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}],
+            tools=TOOLS, messages=[{"role": "user", "content": "Ready?"}],
+        )
+    except Exception as e:
+        log.info("tutor warm-up failed: %s", type(e).__name__)
+
+
+async def call_model(messages: list[dict]):
+    """The one Anthropic call per turn. Tests replace this function."""
+    return await client().messages.create(
         model=MODEL,
         max_tokens=1024,
         system=[{"type": "text", "text": SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}],

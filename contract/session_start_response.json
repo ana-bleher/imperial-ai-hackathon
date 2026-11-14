@@ -2,6 +2,7 @@
   "session_id": "abc",
   "child_id": "mia-1",
   "avatar_url": null,
+  "stars": 0,
   "scene": {
     "id": "s1",
     "index": 1,

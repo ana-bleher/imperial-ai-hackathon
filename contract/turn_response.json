@@ -4,6 +4,7 @@
   "feedback": "You said 'afternoon'!",
   "feedback_audio_url": null,
   "retry": false,
+  "stars": 2,
   "scene": {
     "id": "s2",
     "index": 2,

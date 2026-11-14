@@ -76,13 +76,14 @@ def decide(s, transcript, scene=SCENE, next_narration=None):
 # ---------- speaking turns: the agent decides ----------
 
 def test_agent_hit_over_http_uses_agent_line_and_logs_turn_time(monkeypatch):
-    model = use(monkeypatch, *hit("You said 'afternoon', Mia, well done!"))
     sess = client.post("/session/start", json=START).json()
-    r = client.post("/turn", json={"session_id": sess["session_id"], "transcript": "afternoon"}).json()
-    assert r["result"] == "hit" and r["feedback"] == "You said 'afternoon', Mia, well done!"
+    word = sess["scene"]["challenge"]["target_words"][0]
+    model = use(monkeypatch, *hit(f"You said '{word}', Mia, well done!"))
+    r = client.post("/turn", json={"session_id": sess["session_id"], "transcript": word}).json()
+    assert r["result"] == "hit" and r["feedback"] == f"You said '{word}', Mia, well done!"
     assert r["scene"]["id"] == "s2"
     msg = model.messages[0][0]["content"]
-    assert "TURN TYPE: SPEAKING" in msg and "<transcript>afternoon</transcript>" in msg
+    assert "TURN TYPE: SPEAKING" in msg and f"<transcript>{word}</transcript>" in msg
     assert "CHILD STATE (get_child_state)" in msg
     from agent.main import SESSIONS
     entry = SESSIONS[sess["session_id"]]["log"][-1]

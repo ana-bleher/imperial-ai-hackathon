@@ -10,5 +10,11 @@
   "agent_log": [
     {"scene": "s2", "action": "retry_with_hint", "reason": "Answer was not 'sun' (try 1 of 3); gave the authored hint"},
     {"scene": "s2", "action": "advance", "reason": "Answered 'sun' correctly on try 2"}
-  ]
+  ],
+  "summary": {
+    "stars_tonight": 7,
+    "words_practised": ["afternoon", "sun", "lantern"],
+    "needed_help": ["sun", "lantern"],
+    "agent_note": "Struggled with 'lantern' - practise together"
+  }
 }

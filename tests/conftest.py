@@ -11,6 +11,10 @@ def no_real_agent(monkeypatch):
         raise RuntimeError("no network in tests")
     monkeypatch.setattr(tutor, "call_model", offline)
 
+    async def no_warm_up():
+        return None
+    monkeypatch.setattr(tutor, "warm_up", no_warm_up)
+
 
 @pytest.fixture(autouse=True)
 def no_real_voice(monkeypatch):
