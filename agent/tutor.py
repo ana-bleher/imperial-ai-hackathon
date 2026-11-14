@@ -23,10 +23,11 @@ log = logging.getLogger("tutor")
 
 MODEL = "claude-sonnet-5-5"
 TIMEOUT_S = 6.0
-SYSTEM_PROMPT = (Path(__file__).resolve().parent.parent / "prompts" / "story_agent.md").read_text()
+SYSTEM_PROMPT = (Path(__file__).resolve().parent.parent / "prompts" / "story_agent.md").read_text(encoding="utf-8")
 
 PARSERS = {t.NAME: t.parse for t in (ask, assess, set_difficulty, next_step, notify_parent)}
 TOOLS = [t.SCHEMA for t in (assess, set_difficulty, next_step, ask, notify_parent)]
+USAGE_FIELDS = ("input_tokens", "output_tokens", "cache_creation_input_tokens", "cache_read_input_tokens")
 
 # Words the agent may use even if the child also said them (see leaks_child_words).
 COMMON_WORDS = {
@@ -284,11 +285,17 @@ def apply_authored(scene, transcript, d, calls, vocab) -> dict:
 # ---------- entry point ----------
 
 async def _ask_agent(message: str) -> tuple[dict | None, dict]:
-    meta = {"source": "agent", "agent_ms": None, "fallback_reason": None}
+    meta = {"source": "agent", "agent_ms": None, "fallback_reason": None,
+            **dict.fromkeys(USAGE_FIELDS)}
     start = time.perf_counter()
     try:
         response = await asyncio.wait_for(
             call_model([{"role": "user", "content": message}]), TIMEOUT_S)
+        usage = getattr(response, "usage", None)
+        for field in USAGE_FIELDS:
+            value = usage.get(field) if isinstance(usage, dict) else getattr(usage, field, None)
+            if type(value) is int and value >= 0:
+                meta[field] = value
         calls = read_calls(response)
     except asyncio.TimeoutError:
         calls, meta["fallback_reason"] = None, f"agent took over {TIMEOUT_S:.0f}s"
@@ -337,3 +344,7 @@ def _finish(meta: dict) -> None:
     if meta["fallback_reason"]:
         meta["source"] = "fallback"
         log.warning("tutor fallback: %s (%s ms)", meta["fallback_reason"], meta["agent_ms"])
+    log.info("tutor source=%s agent_ms=%s input_tokens=%s output_tokens=%s "
+             "cache_creation_input_tokens=%s cache_read_input_tokens=%s",
+             meta["source"], meta["agent_ms"], meta["input_tokens"], meta["output_tokens"],
+             meta["cache_creation_input_tokens"], meta["cache_read_input_tokens"])
