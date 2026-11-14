@@ -26,7 +26,7 @@ from dotenv import load_dotenv
 
 load_dotenv()  # ANTHROPIC_API_KEY for the tutor agent (never committed)
 
-from agent import fallback, tutor  # noqa: E402
+from agent import fallback, questions, tutor  # noqa: E402
 from tools import paint_avatar  # noqa: E402
 from tools import voice as voice_tools  # noqa: E402
 
@@ -238,6 +238,9 @@ async def speak_all_narration(sess: dict) -> None:
         await narration_path(sess, sid)
 
 
+PUBLIC_CHALLENGE_KEYS = ("level", "prompt", "target_words")  # the contract; accept stays private
+
+
 def scene_payload(sess: dict, request: Request, narration_audio: str | None = None,
                   challenge_audio: str | None = None) -> dict:
     scene = SCENES[sess["scene_id"]]
@@ -250,7 +253,7 @@ def scene_payload(sess: dict, request: Request, narration_audio: str | None = No
         "narration_audio_url": audio_url(request, narration_audio),
         "image_url": f"{base}/static/scenes/{scene['id']}.jpg",
         "avatar_position": scene.get("avatar_position") or DEFAULT_AVATAR_POSITION,
-        "challenge": sess["challenge"],
+        "challenge": {k: sess["challenge"][k] for k in PUBLIC_CHALLENGE_KEYS},
         "challenge_audio_url": audio_url(request, challenge_audio),
         "choices": fallback.scene_choices(scene),
         "avatar_url": audio_url(request, sess.get("avatar_path")),  # null until the painting is ready
@@ -292,22 +295,23 @@ async def paint_avatar_for(sess: dict, png: bytes, traits: dict) -> None:
 
 
 def enter_scene(sess: dict, scene_id: str, challenge: dict | None = None) -> None:
-    """Enter a scene. `challenge` is the agent's first challenge for it (checked in agent/tutor.py);
-    without one, the fallback rule picks it."""
+    """Enter a scene. `challenge` is the agent's first question for it (checked in agent/tutor.py).
+    Without one (session start, or the agent was slow, invalid or did not ask) the fallback rule
+    uses the scene's authored question, or a say challenge from the narration."""
     scene = SCENES[scene_id]
     sess["scene_attempts"] = 0  # non-silent answers in this scene, for the first-try star
     fallback.enter_scene(sess, scene, narration_for(sess, scene), exclude=name_words(sess))
     if challenge and fallback.decision_type(scene) is None:
         sess["challenge"] = challenge
-        sess["key_word"] = tutor.key_word_of(challenge["target_words"])
+        sess["key_word"] = questions.key_word(challenge) or sess["key_word"]
+        sess["question_types"][-1] = questions.qtype(challenge)
 
 
-def next_speaking_narration(sess: dict, scene: dict) -> str | None:
-    """Narration of the next scene if the agent will set its challenge (linear, no decision)."""
-    nxt = scene.get("next")
-    if scene.get("branches") or not nxt or fallback.decision_type(SCENES[nxt]) is not None:
-        return None
-    return narration_for(sess, SCENES[nxt])
+def next_speaking_narrations(sess: dict, scene: dict) -> dict[str, str]:
+    """Narration of each possible next scene whose question the agent sets (no authored decision),
+    including every branch destination."""
+    return {nid: narration_for(sess, SCENES[nid]) for nid in next_ids(scene)
+            if nid and fallback.decision_type(SCENES[nid]) is None}
 
 
 def pet_of(sess: dict) -> str:
@@ -326,7 +330,7 @@ def challenge_word(sess: dict, scene: dict) -> str | None:
         return scene["decision"]["correct_word"]
     if kind == fallback.BRANCH_CHOICE:
         return None
-    return sess["key_word"] or tutor.key_word_of(sess["challenge"]["target_words"])
+    return sess["key_word"] or questions.key_word(sess["challenge"])
 
 
 # ---------- endpoints ----------
@@ -409,7 +413,7 @@ async def turn(request: Request):
     word = challenge_word(sess, scene)
     d, meta = await tutor.decide(
         sess, scene, narration_for(sess, scene), transcript,
-        next_narration=next_speaking_narration(sess, scene),
+        next_narration=next_speaking_narrations(sess, scene),
         name_words=name_words(sess),
         vocab=STORY_VOCAB | name_words(sess) | set(fallback.words(json.dumps(sess["child"]))),
     )
@@ -453,6 +457,9 @@ async def turn(request: Request):
         challenge_path(sess) if not story_complete else asyncio.sleep(0),
     )
 
+    asked = None if story_complete else sess["challenge"]  # the question the child hears next
+    entry["question_type"] = asked and questions.qtype(asked)
+    entry["question_reason"] = asked and asked.get("reason")
     entry["turn_ms"] = round((time.perf_counter() - started) * 1000)
     sess["log"].append(entry)
     log.info("turn %s scene=%s result=%s action=%s source=%s agent_ms=%s turn_ms=%s%s",
@@ -474,7 +481,8 @@ MOCK_PROGRESS = {
     "nightly": [{"date": "2026-11-14", "hits": 5, "attempts": 7}],
     "parent_notes": ["Struggled with 'lantern' - practise together"],
     "agent_log": [{"scene": "s2", "action": "retry_with_hint",
-                   "reason": "Answer was not 'sun' (try 1 of 3); gave the authored hint"}],
+                   "reason": "Answer was not 'sun' (try 1 of 3); gave the authored hint",
+                   "question_type": "choice", "question_reason": "Authored quiz question"}],
     "summary": {"stars_tonight": 7, "words_practised": ["afternoon", "sun", "lantern"],
                 "needed_help": ["lantern"], "agent_note": "Struggled with 'lantern' - practise together"},
 }
@@ -521,6 +529,8 @@ def progress(child_id: str):
                              if attempts else 0,
         "nightly": list(nightly.values()),
         "parent_notes": [e["parent_note"] for e in logs if e["parent_note"]],
-        "agent_log": [{"scene": e["scene_id"], "action": e["action"], "reason": e["reason"]} for e in logs],
+        "agent_log": [{"scene": e["scene_id"], "action": e["action"], "reason": e["reason"],
+                       "question_type": e.get("question_type"), "question_reason": e.get("question_reason")}
+                      for e in logs],
         "summary": summary(child, child_id, logs),
     }

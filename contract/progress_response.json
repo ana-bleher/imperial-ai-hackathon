@@ -8,8 +8,12 @@
   "nightly": [{"date": "2026-11-14", "hits": 5, "attempts": 7}],
   "parent_notes": ["Struggled with 'lantern' - practise together"],
   "agent_log": [
-    {"scene": "s2", "action": "retry_with_hint", "reason": "Answer was not 'sun' (try 1 of 3); gave the authored hint"},
-    {"scene": "s2", "action": "advance", "reason": "Answered 'sun' correctly on try 2"}
+    {"scene": "s2", "action": "retry_with_hint", "reason": "Answer was not 'sun' (try 1 of 3); gave the authored hint",
+     "question_type": "choice", "question_reason": "Authored quiz question"},
+    {"scene": "s2", "action": "advance", "reason": "Answered 'sun' correctly on try 2",
+     "question_type": "choice", "question_reason": "Authored story choice"},
+    {"scene": "s3", "action": "advance", "reason": "Chose 'bridge'",
+     "question_type": "count", "question_reason": "Two hits in a row at level 2; bells ring three times, so a counting question"}
   ],
   "summary": {
     "stars_tonight": 7,

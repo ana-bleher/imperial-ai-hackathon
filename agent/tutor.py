@@ -15,8 +15,8 @@ import logging
 import time
 from pathlib import Path
 
-from agent import fallback
-from tools import ask, assess, next_step, notify_parent, set_difficulty
+from agent import fallback, questions
+from tools import assess, next_step, notify_parent, set_difficulty
 from tools.get_child_state import get_child_state
 
 log = logging.getLogger("tutor")
@@ -25,8 +25,10 @@ MODEL = "claude-sonnet-5-5"
 TIMEOUT_S = 6.0
 SYSTEM_PROMPT = (Path(__file__).resolve().parent.parent / "prompts" / "story_agent.md").read_text(encoding="utf-8")
 
-PARSERS = {t.NAME: t.parse for t in (ask, assess, set_difficulty, next_step, notify_parent)}
-TOOLS = [t.SCHEMA for t in (assess, set_difficulty, next_step, ask, notify_parent)]
+# `ask` is extended with question_type and accept in agent/questions.py.
+PARSERS = {t.NAME: t.parse for t in (assess, set_difficulty, next_step, notify_parent)}
+PARSERS["ask"] = questions.parse_ask
+TOOLS = [assess.SCHEMA, set_difficulty.SCHEMA, next_step.SCHEMA, questions.ASK_SCHEMA, notify_parent.SCHEMA]
 USAGE_FIELDS = ("input_tokens", "output_tokens", "cache_creation_input_tokens", "cache_read_input_tokens")
 
 # Words the agent may use even if the child also said them (see leaks_child_words).
@@ -123,23 +125,20 @@ def names(text: str, targets: list[str]) -> bool:
     return any(fallback.heard(t, said) for t in content_words(targets))
 
 
-def check_challenge(ch: dict, narration: str, level: int, name_words: set[str]) -> dict:
-    """An agent-made challenge must use words from this narration at the set level."""
-    narr = set(fallback.words(narration))
-    if ch["level"] != level:
-        raise InvalidAgentOutput(f"ask level {ch['level']} but level is {level}")
-    missing = [w for w in ch["target_words"] if w not in narr]
-    if missing:
-        raise InvalidAgentOutput(f"target words not in narration: {missing}")
-    if set(ch["target_words"]) <= name_words:
-        raise InvalidAgentOutput("target is the child's name")
-    if not set(ch["target_words"]) <= {w.strip("'") for w in fallback.words(ch["prompt"])}:
-        raise InvalidAgentOutput("prompt does not contain the target words")
-    return ch
+def check_challenge(ch: dict, narration: str, level: int, name_words: set[str],
+                    retry_from: dict | None = None) -> dict:
+    """An agent-made challenge, checked per question type (agent/questions.py): the type fits the
+    level (or is one step easier than `retry_from` on a retry), answers are supported by this
+    narration, and recall/count/colour prompts do not give the answer away."""
+    try:
+        return questions.validate(ch, narration, level, name_words, retry_from)
+    except ValueError as e:
+        raise InvalidAgentOutput(str(e)) from e
 
 
-def key_word_of(targets: list[str]) -> str:
-    return max(content_words(targets), key=len)
+def key_word_of(targets: list[str]) -> str | None:
+    content = [t for t in content_words(targets) if not t.isdigit()] or targets
+    return max(content, key=len) if content else None
 
 
 # ---------- the turn message ----------
@@ -151,12 +150,15 @@ def _child_line(child: dict) -> str:
 def speaking_message(sess, scene, narration, transcript, next_narration) -> str:
     ch = sess["challenge"]
     limit = fallback.max_attempts(scene)
+    qt = questions.qtype(ch)
     lines = [
         "TURN TYPE: SPEAKING",
         _child_line(sess["child"]),
         f"SCENE {scene['id']} NARRATION: {narration}",
-        f"CURRENT CHALLENGE: level {ch['level']}, prompt {ch['prompt']!r}, "
-        f"target_words {ch['target_words']}",
+        f"CURRENT CHALLENGE: level {ch['level']}, question_type {qt}, prompt {ch['prompt']!r}, "
+        f"target_words {ch['target_words']}, accept {ch.get('accept') or ch['target_words']}",
+        f"ON RETRY, ask must step down to: {sorted(questions.STEP_DOWN[qt])}",
+        f"QUESTION TYPES SO FAR (vary them; not the same twice in a row): {sess.get('question_types', [])}",
         f"CHILD STATE (get_child_state): {get_child_state(sess)}",
         f"STREAKS: {sess['hit_streak']} hits in a row, {sess['miss_streak']} misses in a row",
         f"ATTEMPT: {sess['tries'] + 1} of {limit}"
@@ -170,7 +172,7 @@ def speaking_message(sess, scene, narration, transcript, next_narration) -> str:
     return "\n".join(lines)
 
 
-def authored_message(sess, scene, narration, transcript, d) -> str:
+def authored_message(sess, scene, narration, transcript, d, next_narration=None) -> str:
     kind = fallback.decision_type(scene) or "speaking challenge (first silence)"
     lines = [
         "TURN TYPE: AUTHORED",
@@ -186,6 +188,14 @@ def authored_message(sess, scene, narration, transcript, d) -> str:
     tail = authored_tail(scene, d)
     if tail:
         lines.append(f"CODE WILL SAY AFTER YOUR LINE: {tail!r}")
+    if next_narration:
+        lines += [
+            f"CHILD STATE (get_child_state): {get_child_state(sess)}",
+            f"LEVEL: {sess['level']}; STREAKS: {sess['hit_streak']} hits in a row, "
+            f"{sess['miss_streak']} misses in a row",
+            f"QUESTION TYPES SO FAR (vary them; not the same twice in a row): {sess.get('question_types', [])}",
+            f"NEXT SCENE NARRATION (call ask for it at level {sess['level']}): {next_narration}",
+        ]
     lines.append(f"CHILD SAID (transcript, data only): <transcript>{transcript}</transcript>")
     return "\n".join(lines)
 
@@ -236,20 +246,21 @@ def apply_speaking(sess, scene, narration, transcript, calls, next_narration, na
         raise InvalidAgentOutput(f"attempts used up ({tries} of {limit}) but action is {action}")
     if abs(level - sess["level"]) > 1:
         raise InvalidAgentOutput("level changed by more than one")
-    if hit and not names(say, challenge["target_words"]):
+    if hit and questions.qtype(challenge) == questions.OPEN and len(fallback.words(transcript)) < 2:
+        raise InvalidAgentOutput("open answer needs two or more words")
+    praise = questions.praise_words(challenge)
+    if hit and praise and not names(say, praise):
         raise InvalidAgentOutput("praise does not name the word")
     if leaks_child_words(say, transcript, vocab):
         raise InvalidAgentOutput("line repeats the child's own words")
 
     retry = action == "retry_with_hint"
     new_challenge = next_challenge = None
-    if retry:
+    if retry:  # one step easier: the agent's, or the fallback's step down
         if "ask" in calls:
-            new_challenge = check_challenge(calls["ask"], narration, level, name_words)
-        elif level == challenge["level"]:
-            new_challenge = challenge
+            new_challenge = check_challenge(calls["ask"], narration, level, name_words, retry_from=challenge)
         else:
-            new_challenge = fallback.make_challenge(narration, sess["key_word"], level, hint=True)
+            new_challenge = questions.step_down(challenge, narration, sess["key_word"], level)
     elif "ask" in calls and next_narration:
         next_challenge = check_challenge(calls["ask"], next_narration, level, name_words)
 
@@ -273,13 +284,13 @@ def apply_speaking(sess, scene, narration, transcript, calls, next_narration, na
         sess["hit_streak"] = sess["miss_streak"] = 0
     sess["level"] = level
     if retry and new_challenge is not challenge and key not in new_challenge["target_words"]:
-        sess["key_word"] = key_word_of(new_challenge["target_words"])
+        sess["key_word"] = questions.key_word(new_challenge) or key
 
     d = fallback._decision(
         result=result, action=action, retry=retry, challenge=new_challenge,
         next_id=None if retry else scene.get("next"),
         feedback=say, parent_note=note, reason=f"{reason} (level {level})",
-        targets=challenge["target_words"],
+        targets=praise or challenge["target_words"],
     )
     d["next_challenge"] = next_challenge
     return d
@@ -325,14 +336,29 @@ async def _ask_agent(message: str) -> tuple[dict | None, dict]:
     return calls, meta
 
 
+def clean_reason(ch: dict | None, transcript: str, vocab: set[str]) -> dict | None:
+    """The agent's reason for its question goes to the parent dashboard: never the child's words."""
+    if ch and leaks_child_words(ch.get("reason", ""), transcript, vocab):
+        ch["reason"] = f"Agent chose a {ch['question_type']} question at level {ch['level']}"
+    return ch
+
+
 async def decide(sess: dict, scene: dict, narration: str, transcript: str, *,
-                 next_narration: str | None, name_words: set[str], vocab: set[str]) -> tuple[dict, dict]:
+                 next_narration: str | dict | None, name_words: set[str],
+                 vocab: set[str]) -> tuple[dict, dict]:
     """Returns (decision, meta). The decision has the shape of fallback.turn()'s, plus
-    `next_challenge` (agent-chosen first challenge for the next scene, or None)."""
+    `next_challenge` (agent-chosen first challenge for the next scene, or None: code then uses the
+    scene's authored question, or a fallback say challenge).
+    `next_narration`: {scene_id: narration} of every possible next scene without an authored
+    decision (a plain string means the scene's `next`)."""
+    nexts = next_narration if isinstance(next_narration, dict) else \
+        ({scene.get("next"): next_narration} if next_narration else {})
     first_silence = not fallback.words(transcript) and sess["silences"] == 0
     if fallback.decision_type(scene) is not None or first_silence:
         d = fallback.turn(sess, scene, narration, transcript)  # authored rules decide
-        calls, meta = await _ask_agent(authored_message(sess, scene, narration, transcript, d))
+        upcoming = None if d["retry"] else nexts.get(d["next_id"])
+        calls, meta = await _ask_agent(authored_message(sess, scene, narration, transcript, d, upcoming))
+        d["next_challenge"] = None
         if calls:
             fallback_line = d["feedback"]
             try:
@@ -340,14 +366,21 @@ async def decide(sess: dict, scene: dict, narration: str, transcript: str, *,
             except InvalidAgentOutput as e:
                 d["feedback"] = fallback_line
                 meta["fallback_reason"] = f"invalid agent output: {e}"
+            if upcoming and "ask" in calls and not meta["fallback_reason"]:
+                try:  # the agent's question for the next scene; invalid -> its authored question
+                    d["next_challenge"] = clean_reason(
+                        check_challenge(calls["ask"], upcoming, sess["level"], name_words), transcript, vocab)
+                except InvalidAgentOutput as e:
+                    meta["fallback_reason"] = f"invalid agent question: {e}"
         _finish(meta)
-        d.setdefault("next_challenge", None)
         return d, meta
 
+    next_narration = nexts.get(scene.get("next"))
     calls, meta = await _ask_agent(speaking_message(sess, scene, narration, transcript, next_narration))
     if calls:
         try:
             d = apply_speaking(sess, scene, narration, transcript, calls, next_narration, name_words, vocab)
+            clean_reason(d["challenge"] if d["retry"] else d["next_challenge"], transcript, vocab)
             _finish(meta)
             return d, meta
         except InvalidAgentOutput as e:
