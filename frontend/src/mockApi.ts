@@ -668,7 +668,7 @@ export async function sendTurn(
         : transcript;
 
   let init: RequestInit;
-  if (SEND_AUDIO && !isDemoTurn) {
+  if (SEND_AUDIO && !isDemoTurn && audioFile) {
     const form = new FormData();
     form.append("session_id", session_id);
     if (audioFile) form.append("audio", audioFile, "turn.webm");

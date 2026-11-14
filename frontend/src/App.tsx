@@ -183,24 +183,81 @@ function stopAllAudio() {
 function WatercolorFilter() {
   return (
     <svg width="0" height="0" style={{ position: "absolute" }} aria-hidden="true">
-      <filter id="watercolor" x="-10%" y="-10%" width="120%" height="120%">
-        <feTurbulence type="fractalNoise" baseFrequency="0.035" numOctaves="2" seed="7" result="noise" />
-        <feDisplacementMap in="SourceGraphic" in2="noise" scale="3.5" xChannelSelector="R" yChannelSelector="G" result="wobbly" />
-        <feGaussianBlur in="wobbly" stdDeviation="0.6" result="soft" />
-        <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="1" seed="3" result="grain" />
-        <feColorMatrix in="grain" type="saturate" values="0" result="greyGrain" />
-        <feComposite in="greyGrain" in2="soft" operator="in" result="grainOnShape" />
-        <feBlend in="soft" in2="grainOnShape" mode="multiply" />
+      <filter id="watercolor" x="-15%" y="-15%" width="130%" height="130%" colorInterpolationFilters="sRGB">
+        {/* 1. hand-painted, slightly wobbly edges */}
+        <feTurbulence type="fractalNoise" baseFrequency="0.03" numOctaves="3" seed="7" result="noise" />
+        <feDisplacementMap in="SourceGraphic" in2="noise" scale="5" xChannelSelector="R" yChannelSelector="G" result="wobbly" />
+        <feGaussianBlur in="wobbly" stdDeviation="0.8" result="soft" />
+        {/* 2. uneven pigment, like paint pooling on paper */}
+        <feTurbulence type="fractalNoise" baseFrequency="0.05" numOctaves="2" seed="11" result="pigNoise" />
+        <feColorMatrix in="pigNoise" type="saturate" values="0" result="pigGrey" />
+        <feComponentTransfer in="pigGrey" result="pigment">
+          <feFuncR type="linear" slope="0.55" intercept="0.6" />
+          <feFuncG type="linear" slope="0.55" intercept="0.6" />
+          <feFuncB type="linear" slope="0.55" intercept="0.6" />
+          <feFuncA type="linear" slope="0" intercept="1" />
+        </feComponentTransfer>
+        <feBlend in="soft" in2="pigment" mode="multiply" result="tinted" />
+        <feComposite in="tinted" in2="soft" operator="in" result="painted" />
+        {/* 3. darker rim where watercolour dries at the edges */}
+        <feMorphology in="soft" operator="erode" radius="1.6" result="inner" />
+        <feComposite in="soft" in2="inner" operator="out" result="rim" />
+        <feColorMatrix in="rim" type="matrix" values="0.55 0 0 0 0  0 0.55 0 0 0  0 0 0.6 0 0  0 0 0 0.5 0" result="rimDark" />
+        <feMerge>
+          <feMergeNode in="painted" />
+          <feMergeNode in="rimDark" />
+        </feMerge>
       </filter>
+    </svg>
+  );
+}
+
+// Pip, the tiny firefly with a lantern, who guides the story.
+function Pip({ sleeping = false }: { sleeping?: boolean }) {
+  return (
+    <svg viewBox="0 0 80 80" aria-hidden="true" className={`pip-svg ${sleeping ? "sleeping" : ""}`}>
+      <defs>
+        <radialGradient id="pip-glow" cx="50%" cy="50%" r="50%">
+          <stop offset="0%" stopColor="#fff3b0" stopOpacity="0.95" />
+          <stop offset="55%" stopColor="#f6d36b" stopOpacity="0.45" />
+          <stop offset="100%" stopColor="#f6d36b" stopOpacity="0" />
+        </radialGradient>
+      </defs>
+      <circle cx="40" cy="44" r="34" fill="url(#pip-glow)" />
+      <ellipse cx="29" cy="30" rx="11" ry="7" fill="#ffffff" opacity="0.75" transform="rotate(-25 29 30)" />
+      <ellipse cx="49" cy="30" rx="11" ry="7" fill="#ffffff" opacity="0.75" transform="rotate(25 49 30)" />
+      <ellipse cx="39" cy="52" rx="10" ry="12" fill="#ffe27a" />
+      <circle cx="39" cy="35" r="10" fill="#6d5a8c" />
+      <path d="M35 26 31 18M43 26l4-8" stroke="#6d5a8c" strokeWidth="2" strokeLinecap="round" />
+      {sleeping ? (
+        <path d="M34 35h4M41 35h4" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" />
+      ) : (
+        <>
+          <circle cx="36" cy="34" r="1.8" fill="#fff" />
+          <circle cx="43" cy="34" r="1.8" fill="#fff" />
+        </>
+      )}
+      <path d="M36 39q3 2.5 6 0" stroke="#fff" strokeWidth="1.5" fill="none" strokeLinecap="round" />
+      {!sleeping && (
+        <g>
+          <path d="M55 46v5" stroke="#8a6a3c" strokeWidth="1.5" />
+          <rect x="51" y="51" width="9" height="11" rx="3" fill="#f2c14e" stroke="#8a6a3c" strokeWidth="1.2" />
+          <circle cx="55.5" cy="56.5" r="2.4" fill="#fff8d6" />
+        </g>
+      )}
     </svg>
   );
 }
 
 // Where the bed is in Kiko's two goodnight pictures (fractions of the picture).
 // The child lies tucked in with their head on the pillow; their animal friend sleeps on the rug.
-const BED_SPOTS: Record<string, { x: number; y: number; width: number; pet: { x: number; y: number; height: number } }> = {
-  s5a: { x: 0.31, y: 0.52, width: 0.17, pet: { x: 0.5, y: 0.86, height: 0.14 } },
-  s5b: { x: 0.69, y: 0.6, width: 0.17, pet: { x: 0.47, y: 0.88, height: 0.14 } },
+const BED_SPOTS: Record<
+  string,
+  { x: number; y: number; width: number; pet: { x: number; y: number; height: number }; pip: { x: number; y: number } }
+> = {
+  // Pip sleeps in the little blue flower on the bedside table.
+  s5a: { x: 0.31, y: 0.52, width: 0.17, pet: { x: 0.5, y: 0.86, height: 0.14 }, pip: { x: 0.545, y: 0.55 } },
+  s5b: { x: 0.69, y: 0.6, width: 0.17, pet: { x: 0.47, y: 0.88, height: 0.14 }, pip: { x: 0.955, y: 0.64 } },
 };
 
 function Avatar({ child, size = "large" }: { child: Child; size?: "small" | "medium" | "large" }) {
@@ -1312,7 +1369,9 @@ function StoryScene({
       utterance.pitch = 1.04;
       utterance.volume = 0.95;
       utterance.onend = () => speakSentence(index + 1);
-      utterance.onerror = onEnd;
+      utterance.onerror = () => {
+        if (run === speechRunRef.current) onEnd();
+      };
       window.speechSynthesis.speak(utterance);
     };
 
@@ -1747,12 +1806,45 @@ function StoryScene({
     await microphone;
     sessionRef.current = response.session_id;
     setSessionId(response.session_id);
-    setCurrentScene(response.scene);
+    // The narrator reads the title page ("Pip's Gentle Journey Home. Hello Mia! Are you ready…")
+    // while it is on screen, then the page turns to the first scene.
     setTitleCard(true);
-    window.setTimeout(() => {
-      setTitleCard(false);
-      narrateScene(response.scene);
-    }, 3800);
+    narrateScene(response.scene);
+    window.setTimeout(() => setTitleCard(false), 5200);
+  };
+
+  // Parents/children can turn the page themselves: during the story it skips to the
+  // question; at a question it moves on (the backend logs it like a normal answer).
+  const turnPageManually = async () => {
+    const current = sceneRef.current;
+    const currentSession = sessionRef.current;
+    if (!current || !currentSession || sending) return;
+    if (phase === "narrating") {
+      speechRunRef.current += 1;
+      window.speechSynthesis?.cancel();
+      stopAllAudio();
+      audioRef.current?.pause();
+      setActiveSentence(null);
+      if (current.index === current.total) setPhase("ready");
+      else if (current.choices) askDecision(current);
+      else askChallenge(current);
+      return;
+    }
+    if (current.choices) {
+      setShowChoices(true); // at a choice the child picks a card instead
+      return;
+    }
+    cancelRecording();
+    clearChoiceTimer();
+    setSending(true);
+    setPhase("thinking");
+    try {
+      const response = await sendTurn(currentSession, current.challenge.target_words.join(" "));
+      setOfflineDemo(isOfflineDemo());
+      processChallengeResponse(response);
+    } finally {
+      setSending(false);
+    }
   };
 
   const recordResult = async (result: "success" | "miss") => {
@@ -1929,6 +2021,15 @@ function StoryScene({
             >
               <AnimalIllustration animal={child.friend} />
             </div>
+            <div
+              className="pip-sleeping"
+              style={{
+                left: `${BED_SPOTS[scene.id].pip.x * 100}%`,
+                top: `${BED_SPOTS[scene.id].pip.y * 100}%`,
+              }}
+            >
+              <Pip sleeping />
+            </div>
           </>
         ) : (
         <div
@@ -1941,6 +2042,9 @@ function StoryScene({
         >
           <WatercolorFilter />
           <span className="avatar-feet-shadow" aria-hidden="true" />
+          <div className="pip-flying">
+            <Pip />
+          </div>
           <div className="scene-avatar-person">
             <Avatar child={child} />
           </div>
@@ -2094,6 +2198,15 @@ function StoryScene({
               ))}
             </div>
           </div>
+        )}
+        {!isFinalScene && (
+          <button
+            className="next-page-button"
+            onClick={() => void turnPageManually()}
+            disabled={sending || phase === "thinking"}
+          >
+            {phase === "narrating" ? "Skip to question" : "Next page"} <span aria-hidden="true">›</span>
+          </button>
         )}
         {!isFinalScene && (
           <button
@@ -2448,6 +2561,32 @@ function Dashboard({
         ) : null}
       </section>
     </main>
+  );
+}
+
+export function NightModeToggle() {
+  const [night, setNight] = useState(() => {
+    try {
+      const saved = localStorage.getItem("speakaboo-night");
+      if (saved) return saved === "on";
+    } catch {
+      /* storage unavailable */
+    }
+    const hour = new Date().getHours();
+    return hour >= 19 || hour < 6;
+  });
+  useEffect(() => {
+    document.documentElement.classList.toggle("night", night);
+    try {
+      localStorage.setItem("speakaboo-night", night ? "on" : "off");
+    } catch {
+      /* storage unavailable */
+    }
+  }, [night]);
+  return (
+    <button className="night-toggle" onClick={() => setNight(!night)} aria-pressed={night}>
+      {night ? "☀️ Day mode" : "🌙 Night mode"}
+    </button>
   );
 }
 
