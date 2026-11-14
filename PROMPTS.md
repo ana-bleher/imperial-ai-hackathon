@@ -37,7 +37,7 @@ Children's picture-book illustration, soft watercolour, warm muted colours, calm
 {IMAGE_PROMPT}. Wide landscape composition with empty space in the foreground for a character.
 No people, no animals in the foreground, no text.
 ```
-Save as `static/scenes/{scene_id}.png`. Keep the same style words for every scene.
+Save as `static/scenes/{scene_id}.jpg`, with a 1600-pixel long edge and the original aspect ratio. Keep the same style words for every scene.
 
 ---
 

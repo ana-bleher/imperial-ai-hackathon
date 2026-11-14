@@ -10,7 +10,7 @@
     "total": 5,
     "narration": "The wooden sign showed two bright pictures: a golden sun and a silver moon. ...",
     "narration_audio_url": null,
-    "image_url": "https://YOUR-APP.onrender.com/static/scenes/s2.png",
+    "image_url": "https://YOUR-APP.onrender.com/static/scenes/s2.jpg",
     "avatar_position": {"x": 0.22, "y": 0.68, "scale": 0.3},
     "challenge": {"level": 1, "prompt": "Which one warms the flowers during the day: sun or moon?", "target_words": ["sun", "moon"]},
     "challenge_audio_url": null,
