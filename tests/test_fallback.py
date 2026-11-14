@@ -339,3 +339,28 @@ def test_full_story_completes_even_if_child_never_answers_right():
         raise AssertionError("story stalled")
     notes = client.get(f"/progress/{sess['child_id']}").json()["parent_notes"]
     assert notes
+
+
+# ---------- negations and self-corrections ----------
+
+def test_settled_words_take_the_last_answer():
+    assert fb.settled_words("not sun... moon") == ["moon"]
+    assert fb.settled_words("sun, no, moon") == ["moon"]
+    assert fb.settled_words("sun... I mean moon") == ["moon"]
+    assert fb.settled_words("moon, not the sun") == ["moon"]
+    assert fb.settled_words("no") == ["no"]  # a plain "no" is still heard (branch proposals)
+
+
+def test_question_judges_self_correction():
+    for text in ("not moon... sun", "moon, no, sun", "moon... I mean sun"):
+        assert say(fresh(QUESTION), text, QUESTION)["result"] == "hit", text
+    for text in ("not sun... moon", "sun, no, moon", "sun... I mean moon"):
+        assert say(fresh(QUESTION), text, QUESTION)["result"] == "miss", text
+
+
+def test_branch_and_speaking_judge_self_correction():
+    d = say(fresh(BRANCH), "bridge, no, boat", BRANCH)
+    assert d["chosen"] == "boat" and d["next_id"] == "s3b"
+    s = fresh()
+    word = s["challenge"]["target_words"][0]
+    assert say(s, f"{word}... I mean banana")["result"] == "miss"

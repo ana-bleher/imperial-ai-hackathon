@@ -31,6 +31,8 @@ For an ordinary speaking challenge:
    clear negation/self-correction; an unrelated request containing a target is
    not a hit. An empty SPEAKING transcript is a miss; first silence is routed
    separately as AUTHORED.
+   For negations and self-corrections ("not sun… moon", "sun, no, moon",
+   "sun… I mean moon"), judge only the last word the child settled on.
 2. Call `set_difficulty(level)` using the supplied streaks plus this result:
    two consecutive hits raise the level one step; two consecutive misses lower
    it one step with a hint; otherwise keep it. Stay within 1–3.

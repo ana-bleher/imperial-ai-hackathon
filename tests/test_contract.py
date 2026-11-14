@@ -143,3 +143,31 @@ def test_challenge_audio_cached_per_prompt(monkeypatch):
     assert paths == ["/static/audio/c.mp3"] * 2
     assert spoken == ["Can you say 'moon'?"]  # spoken once, then served from the cache
     assert none_path is None
+
+
+def test_turn_does_not_wait_for_slow_narration_but_keeps_generating(monkeypatch):
+    import asyncio
+    from agent import main
+
+    async def run():
+        sess = {"child": {"child_name": "Mia", "avatar": {}}}
+        sid = next(iter(main.SCENES))
+        slow = asyncio.get_running_loop().create_future()
+        monkeypatch.setattr(main, "narration_task", lambda s, i: slow)
+        assert await main.narration_path(sess, sid, wait=0.01) is None  # gave up waiting
+        assert not slow.cancelled()                                       # still running
+        slow.set_result("/static/audio/n.mp3")
+        assert await main.narration_path(sess, sid, wait=0.01) == "/static/audio/n.mp3"
+    asyncio.run(run())
+
+
+def test_voice_timeout_argument():
+    import asyncio
+    import time
+    from agent import main
+
+    def slow():
+        time.sleep(0.2)
+        return "done"
+    assert asyncio.run(main.voice(slow, timeout=0.01)) is None
+    assert asyncio.run(main.voice(slow, timeout=1)) == "done"
