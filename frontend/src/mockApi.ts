@@ -29,6 +29,8 @@ export type Scene = {
 };
 
 export type StartSessionResponse = {
+  // Read on the book cover before the story starts: title + a hello for the child.
+  intro?: { text: string; audio_url: string | null } | null;
   session_id: string;
   child_id: number | string;
   avatar_url: string | null;

@@ -147,8 +147,8 @@ function StarField({ count = 22 }: { count?: number }) {
           key={i}
           style={
             {
-              "--x": `${(i * 37) % 96}%`,
-              "--y": `${(i * 61) % 88}%`,
+              "--x": `${(i * 37 + Math.floor(i / 23) * 11) % 98}%`,
+              "--y": `${(i * 61 + Math.floor(i / 17) * 7) % 96}%`,
               "--d": `${(i % 5) * 0.7}s`,
               "--s": `${3 + (i % 3) * 2}px`,
             } as React.CSSProperties
@@ -486,14 +486,23 @@ function BackButton({ onClick, label = "Back" }: { onClick: () => void; label?: 
 function Login({ onLogin, onDemo }: { onLogin: () => void; onDemo: () => void }) {
   return (
     <main className="login-screen page-enter">
-      <StarField />
+      <StarField count={66} />
       <section className="login-hero">
         <div className="moon-illustration" aria-hidden="true">
-          <span className="moon-face">
-            <i />
-            <i />
-            <b />
-          </span>
+          <svg className="moon-crescent" viewBox="0 0 120 120" aria-hidden="true">
+            {/* a smiling crescent moon: a full circle with a smaller circle cut out of its top right */}
+            <defs>
+              <mask id="moon-cutout">
+                <rect width="120" height="120" fill="white" />
+                <circle cx="94" cy="40" r="42" fill="black" />
+              </mask>
+            </defs>
+            <circle cx="58" cy="62" r="50" fill="#f2c14e" mask="url(#moon-cutout)" />
+            <circle cx="30" cy="58" r="4" fill="#1b2340" />
+            <circle cx="46" cy="57" r="4" fill="#1b2340" />
+            <path d="M28 75q10 8 20 0" stroke="#1b2340" strokeWidth="3.2" fill="none" strokeLinecap="round" />
+            <circle cx="20" cy="68" r="5.5" fill="#e9a23b" opacity="0.45" />
+          </svg>
           <span className="cloud cloud-one" />
           <span className="cloud cloud-two" />
         </div>
@@ -1350,6 +1359,8 @@ function StoryScene({
   const [titleCard, setTitleCard] = useState(false);
   const [paintedAvatar, setPaintedAvatar] = useState<string | null>(null);
   const sessionPromiseRef = useRef<Promise<Awaited<ReturnType<typeof startSession>>> | null>(null);
+  const [coverInvite, setCoverInvite] = useState(false); // "Open the book" shimmers once the cover has been read
+  const introAudioRef = useRef<HTMLAudioElement | null>(null);
   // Pages already read, so "Previous page" can go back without asking the backend.
   const historyRef = useRef<Scene[]>([]);
   const readingStoryRef = useRef(false); // true only while the page's story text is being read
@@ -1526,11 +1537,18 @@ function StoryScene({
     audio.addEventListener("playing", handlePlaying);
     audio.ontimeupdate = () => {
       if (!onSentence || !Number.isFinite(audio.duration) || audio.duration <= 0) return;
-      const sentenceCount = getSentences(copy).length;
-      const index = Math.min(
-        sentenceCount - 1,
-        Math.floor((audio.currentTime / audio.duration) * sentenceCount),
-      );
+      const parts = getSentences(copy);
+      const total = parts.reduce((sum, part) => sum + part.length, 0) || 1;
+      const progress = Math.min(1, (audio.currentTime + 0.35) / audio.duration) * total;
+      let reached = 0;
+      let index = parts.length - 1;
+      for (let i = 0; i < parts.length; i += 1) {
+        reached += parts[i].length;
+        if (progress <= reached) {
+          index = i;
+          break;
+        }
+      }
       onSentence(index);
     };
     audio.onended = finish;
@@ -1848,8 +1866,29 @@ function StoryScene({
 
   useEffect(() => {
     if (!started) {
-      const timer = window.setTimeout(() => void prepareSession(), 300);
-      return () => window.clearTimeout(timer);
+      let cancelled = false;
+      const inviteSoon = () => window.setTimeout(() => !cancelled && setCoverInvite(true), 1200);
+      const timer = window.setTimeout(() => {
+        void prepareSession().then((response) => {
+          if (cancelled) return;
+          const url = response.intro?.audio_url;
+          if (!url) {
+            inviteSoon();
+            return;
+          }
+          // The narrator reads the cover: title + hello. Then the button invites the child in.
+          const audio = new Audio(url);
+          introAudioRef.current = audio;
+          LIVE_AUDIO.add(audio);
+          audio.onended = () => !cancelled && setCoverInvite(true);
+          audio.onerror = () => inviteSoon();
+          void audio.play().catch(() => inviteSoon());
+        });
+      }, 300);
+      return () => {
+        cancelled = true;
+        window.clearTimeout(timer);
+      };
     }
     return undefined;
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1857,6 +1896,7 @@ function StoryScene({
 
   const startExperience = async () => {
     if (started) return;
+    introAudioRef.current?.pause();
     setStarted(true);
     setPhase("loading");
     setOpeningMessage("Opening the storybook…");
@@ -2080,7 +2120,7 @@ function StoryScene({
           <Avatar child={child} />
         </div>
         <img className="cover-art" src={`${API_URL}/static/scenes/s1.jpg`} alt="" />
-        <StarField count={28} />
+        <StarField count={84} />
         <div className="story-start-content book-cover">
           <small className="cover-eyebrow">Tonight's bedtime story</small>
           <h1>Pip's Gentle Journey Home</h1>
@@ -2089,7 +2129,7 @@ function StoryScene({
           </div>
           <p>A story for {child.name}</p>
           <button
-            className="primary-button big start-story-button"
+            className={`primary-button big start-story-button ${coverInvite ? "invite" : ""}`}
             onClick={() => void startExperience()}
           >
             <Icon name="book" size={22} /> Open the book
@@ -2133,7 +2173,7 @@ function StoryScene({
   const ofW = (f: number) => (frame ? `${f * frame.w}px` : `${f * 100}%`);
   const turnStatus =
     phase === "thinking"
-      ? "Pip is thinking…"
+      ? "Pip heard you! 👂"
       : phase === "narrating"
         ? "Listen to the story…"
         : "Your turn!";
@@ -2342,7 +2382,7 @@ function StoryScene({
                   {phase === "listening"
                     ? "🎤 I'm listening… say it, or tap your choice!"
                     : phase === "thinking"
-                      ? "Pip is thinking…"
+                      ? "Pip heard you! 👂"
                       : "Or tap your choice!"}
                 </p>
                 <div className="decision-cards-visible">
@@ -2377,7 +2417,7 @@ function StoryScene({
               {phase === "listening"
                 ? "I’m listening…"
                 : phase === "thinking"
-                  ? "Listening to your words"
+                  ? "Pip is listening carefully…"
                   : "Speak when you’re ready"}
             </span>
           </div>
