@@ -169,6 +169,8 @@ const outfitColors: Record<string, [string, string]> = {
 
 // Every narration/feedback clip we create, so only one voice ever plays at a time.
 const LIVE_AUDIO = new Set<HTMLAudioElement>();
+// Recorders we stopped on purpose; their late "stop" event must not touch the new recording.
+const CANCELLED_RECORDERS = new WeakSet<MediaRecorder>();
 function stopAllAudio() {
   LIVE_AUDIO.forEach((audio) => {
     audio.pause();
@@ -1242,7 +1244,6 @@ function StoryScene({
   const animationRef = useRef<number | null>(null);
   const choiceTimerRef = useRef<number | null>(null);
   const advanceTimerRef = useRef<number | null>(null);
-  const ignoreRecordingRef = useRef(false);
   const sessionRef = useRef<string | null>(null);
   const sceneRef = useRef<Scene | null>(null);
   const speechRunRef = useRef(0);
@@ -1270,7 +1271,7 @@ function StoryScene({
     animationRef.current = null;
     const recorder = recorderRef.current;
     if (recorder && recorder.state !== "inactive") {
-      ignoreRecordingRef.current = true;
+      CANCELLED_RECORDERS.add(recorder);
       recorder.stop();
     }
     recorderRef.current = null;
@@ -1454,8 +1455,10 @@ function StoryScene({
     setFeedbackCopy(response.feedback);
     setRetrying(true);
     setPhase("feedback");
+    clearChoiceTimer();
+    if (mode === "decision") setShowChoices(true); // cards stay as a backup; voice still works
     playAudioOrSpeech(response.feedback, response.feedback_audio_url, () => {
-      setPhase("ready");
+      startListening(mode, true);
     });
   };
 
@@ -1644,12 +1647,9 @@ function StoryScene({
 
     recorder.onstop = () => {
       const audioFile = new Blob(chunks, { type: recorder.mimeType || "audio/webm" });
-      recorderRef.current = null;
+      if (CANCELLED_RECORDERS.has(recorder)) return; // stopped on purpose; a newer recording may be running
+      if (recorderRef.current === recorder) recorderRef.current = null;
       recognitionRef.current = null;
-      if (ignoreRecordingRef.current) {
-        ignoreRecordingRef.current = false;
-        return;
-      }
       if (heardVoice) void submitRecording(mode, audioFile, recognizedTranscript);
       else handleNoSpeech(mode, retry);
     };
@@ -1978,7 +1978,13 @@ function StoryScene({
               </div>
             ) : (
               <>
-                <p className="tap-choice-label">Or tap your choice!</p>
+                <p className="tap-choice-label">
+                  {phase === "listening"
+                    ? "🎤 I'm listening… say it, or tap your choice!"
+                    : phase === "thinking"
+                      ? "Pip is thinking…"
+                      : "Or tap your choice!"}
+                </p>
                 <div className="decision-cards-visible">
                   {scene.choices?.map((choice, choiceIndex) => (
                     <button
