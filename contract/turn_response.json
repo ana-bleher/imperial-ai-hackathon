@@ -13,6 +13,7 @@
     "image_url": "https://YOUR-APP.onrender.com/static/scenes/s2.png",
     "avatar_position": {"x": 0.22, "y": 0.68, "scale": 0.3},
     "challenge": {"level": 1, "prompt": "Which one warms the flowers during the day: sun or moon?", "target_words": ["sun", "moon"]},
+    "challenge_audio_url": null,
     "choices": [
       {"word": "sun", "label": "Sun", "icon": "sun"},
       {"word": "moon", "label": "Moon", "icon": "moon"}
