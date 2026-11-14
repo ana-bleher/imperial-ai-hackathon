@@ -1,4 +1,5 @@
-"""Mock backend: FastAPI app with the contract from CLAUDE.md. No AI yet.
+"""FastAPI app with the contract from CLAUDE.md. Turns use the fallback rule (no AI yet).
+The story (scenes, order, branches, decisions, endings) comes from data/story.json.
 
 Run locally:  uvicorn agent.main:app --reload
 """
@@ -12,71 +13,78 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
+from agent import fallback
+
 ROOT = Path(__file__).resolve().parent.parent
 STATIC = ROOT / "static"
 (STATIC / "audio").mkdir(parents=True, exist_ok=True)
 (STATIC / "scenes").mkdir(parents=True, exist_ok=True)
 
-MAX_TRIES = 3
+STORY_PATH = ROOT / "data" / "story.json"
 
-PLACEHOLDER_STORY = {
-    "title": "Placeholder story",
-    "scenes": [
-        {
-            "id": "s1",
-            "narration": "The hero walks into a quiet forest. A little path splits in two. "
-                         "One way leads to a wooden bridge, the other to a small boat.",
-            "image_prompt": "quiet forest path splitting in two, background only",
-            "branches": [
-                {"word": "bridge", "label": "Cross the bridge", "icon": "bridge", "next": "s2a"},
-                {"word": "boat", "label": "Take the boat", "icon": "boat", "next": "s2b"},
-            ],
-        },
-        {
-            "id": "s2a",
-            "narration": "Over the bridge, the hero finds a cosy cottage with a glowing lantern. "
-                         "It is time to get ready for sleep.",
-            "image_prompt": "cosy cottage with a lantern at dusk, background only",
-            "next": None,
-        },
-        {
-            "id": "s2b",
-            "narration": "The boat drifts to a sandy shore under the moon. "
-                         "The hero yawns and gets ready for sleep.",
-            "image_prompt": "moonlit sandy shore with a small boat, background only",
-            "next": None,
-        },
-    ],
-}
+
+def validate_story(story: dict) -> None:
+    """Fail at startup, not mid-demo: every reference exists, every decision is one we implement,
+    every path reaches an ending."""
+    scenes = {s["id"]: s for s in story["scenes"]}
+    assert len(scenes) == len(story["scenes"]), "duplicate scene ids"
+    assert story.get("start_scene", story["scenes"][0]["id"]) in scenes, "start_scene not found"
+    for s in story["scenes"]:
+        kind = fallback.decision_type(s)
+        dec = s.get("decision") or {}
+        dests = [b["next"] for b in s.get("branches", [])] or [s.get("next")]
+        for d in dests:
+            assert d is None or d in scenes, f"{s['id']}: unknown scene '{d}'"
+        assert kind in (None, fallback.SINGLE_CORRECT, fallback.BRANCH_CHOICE), \
+            f"{s['id']}: unsupported decision type '{kind}'"
+        if kind == fallback.BRANCH_CHOICE:
+            assert len(s.get("branches", [])) >= 2, f"{s['id']}: branch_choice needs 2+ branches"
+        if kind == fallback.SINGLE_CORRECT:
+            assert dec["correct_word"] in [o["word"] for o in dec["options"]], \
+                f"{s['id']}: correct_word is not an option"
+        for key, allowed in fallback.SUPPORTED_ACTIONS.items():
+            assert dec.get(key) in (None, *allowed), f"{s['id']}: unsupported {key} '{dec.get(key)}'"
+
+    def reaches_end(sid, seen=()):
+        if sid is None:
+            return True
+        if sid in seen:
+            return False
+        sc = scenes[sid]
+        dests = [b["next"] for b in sc.get("branches", [])] or [sc.get("next")]
+        return all(reaches_end(d, (*seen, sid)) for d in dests)
+    assert reaches_end(story.get("start_scene", story["scenes"][0]["id"])), "a path never ends"
 
 
 def load_story() -> dict:
-    path = ROOT / "data" / "story.json"
-    if path.exists():
-        return json.loads(path.read_text())
-    return PLACEHOLDER_STORY
+    story = json.loads(STORY_PATH.read_text())
+    validate_story(story)
+    return story
 
 
 STORY = load_story()
 SCENES = {s["id"]: s for s in STORY["scenes"]}
+START = STORY.get("start_scene") or STORY["scenes"][0]["id"]
+DEFAULT_AVATAR_POSITION = {"x": 0.3, "y": 0.62, "scale": 0.35}
+
+
+def next_ids(scene: dict) -> list[str | None]:
+    """Declared destinations: the branches, or `next` (None = an ending)."""
+    return [b["next"] for b in scene.get("branches", [])] or [scene.get("next")]
 
 
 def path_depth(scene_id: str) -> int:
-    """1-based position of a scene on the path from the first scene."""
-    depth, sid = 1, STORY["scenes"][0]["id"]
-    frontier = [sid]
-    seen = set()
+    """1-based position of a scene on the path from the start scene."""
+    depth, frontier, seen = 1, [START], set()
     while frontier:
         if scene_id in frontier:
             return depth
         nxt = []
         for sid in frontier:
-            if sid in seen:
-                continue
-            seen.add(sid)
-            s = SCENES[sid]
-            nxt += [b["next"] for b in s.get("branches", [])] or ([s["next"]] if s.get("next") else [])
-        frontier, depth = [n for n in nxt if n], depth + 1
+            if sid not in seen:
+                seen.add(sid)
+                nxt += [n for n in next_ids(SCENES[sid]) if n]
+        frontier, depth = nxt, depth + 1
     return 1
 
 
@@ -90,28 +98,34 @@ SESSIONS: dict[str, dict] = {}   # session_id -> session state
 CHILDREN: dict[str, dict] = {}   # child_id -> profile
 
 
-# ---------- mock challenge / assessment (replaced by the agent later) ----------
+# ---------- challenge / assessment: fallback rule (the agent plugs in here later) ----------
 
-def words(text: str) -> list[str]:
-    return re.findall(r"[a-z']+", text.lower())
-
-
-def mock_challenge(scene: dict, level: int) -> dict:
-    if "branches" in scene:
-        a, b = (br["word"] for br in scene["branches"])
-        return {"level": 1, "prompt": f"Shall we go to the {a} or the {b}?", "target_words": [a, b]}
-    ws = [w for w in words(scene["narration"]) if len(w) >= 5 and w != "hero"]
-    if level == 1:
-        target = ws[0] if ws else words(scene["narration"])[0]
-        return {"level": 1, "prompt": f"Can you say '{target}'?", "target_words": [target]}
-    first_sentence = scene["narration"].split(".")[0].split()
-    phrase = " ".join(first_sentence[-3:] if level == 2 else first_sentence).strip(",")
-    return {"level": level, "prompt": f"Can you say '{phrase}'?", "target_words": words(phrase)}
+PRONOUNS = {  # {THEY} / {THEM} / {THEIR}
+    "she": ("she", "her", "her"),
+    "he": ("he", "him", "his"),
+    "they": ("they", "them", "their"),
+}
 
 
-def is_hit(transcript: str, targets: list[str]) -> bool:
-    said = set(words(transcript))
-    return sum(t in said for t in targets) * 2 > len(targets) or (len(targets) <= 2 and bool(said & set(targets)))
+def narration_for(sess: dict, scene: dict) -> str:
+    """Fill the story's placeholders: {CHILD_NAME}, {PET}, {THEY}, {THEM}, {THEIR}."""
+    child = sess["child"]
+    they, them, their = PRONOUNS.get(str(child.get("pronouns", "")).lower(), PRONOUNS["they"])
+    pet = (child.get("avatar") or {}).get("pet") or "puppy"
+    values = {"CHILD_NAME": child["child_name"], "PET": pet, "THEY": they, "THEM": them, "THEIR": their}
+
+    def fill(m: re.Match) -> str:
+        value = values.get(m.group(1), m.group(0))
+        before = scene["narration"][:m.start()].rstrip()
+        if not before or before[-1] in ".!?'\"":  # start of a sentence
+            value = value[:1].upper() + value[1:]
+        return value
+
+    return re.sub(r"\{([A-Z_]+)\}", fill, scene["narration"])
+
+
+def name_words(sess: dict) -> set[str]:
+    return set(fallback.words(sess["child"]["child_name"]))
 
 
 # ---------- response builders ----------
@@ -123,28 +137,22 @@ def base_url(request: Request) -> str:
 def scene_payload(sess: dict, request: Request) -> dict:
     scene = SCENES[sess["scene_id"]]
     base = base_url(request)
-    choices = None
-    if "branches" in scene:
-        choices = [{k: br[k] for k in ("word", "label", "icon")} for br in scene["branches"]]
     return {
         "id": scene["id"],
         "index": path_depth(scene["id"]),
         "total": TOTAL,
-        "narration": scene["narration"].replace("The hero", sess["child"]["child_name"])
-                                       .replace("the hero", sess["child"]["child_name"]),
-        "narration_audio_url": f"{base}/static/audio/{scene['id']}.mp3",
+        "narration": narration_for(sess, scene),
+        "narration_audio_url": None,  # until real narration audio exists
         "image_url": f"{base}/static/scenes/{scene['id']}.png",
-        "avatar_position": {"x": 0.3, "y": 0.62, "scale": 0.35},
+        "avatar_position": scene.get("avatar_position") or DEFAULT_AVATAR_POSITION,
         "challenge": sess["challenge"],
-        "choices": choices,
+        "choices": fallback.scene_choices(scene),
     }
 
 
 def enter_scene(sess: dict, scene_id: str) -> None:
-    sess["scene_id"] = scene_id
-    sess["tries"] = 0
-    sess["silences"] = 0
-    sess["challenge"] = mock_challenge(SCENES[scene_id], sess["level"])
+    scene = SCENES[scene_id]
+    fallback.enter_scene(sess, scene, narration_for(sess, scene), exclude=name_words(sess))
 
 
 # ---------- endpoints ----------
@@ -166,13 +174,24 @@ async def session_start(request: Request):
     session_id = uuid.uuid4().hex[:12]
     sess = {
         "session_id": session_id, "child_id": child_id, "child": child,
-        "scene_id": None, "level": 1, "hit_streak": 0, "miss_streak": 0,
-        "tries": 0, "silences": 0, "challenge": None, "log": [],
+        "log": [], **fallback.new_session_state(),
     }
-    enter_scene(sess, STORY["scenes"][0]["id"])
+    enter_scene(sess, START)
     SESSIONS[session_id] = sess
     return {"session_id": session_id, "child_id": child_id, "avatar_url": None,
             "scene": scene_payload(sess, request)}
+
+
+def mock_answer(sess: dict) -> str:
+    """Until voice is wired in: a right answer for the current scene."""
+    scene = SCENES[sess["scene_id"]]
+    targets = sess["challenge"]["target_words"]
+    kind = fallback.decision_type(scene)
+    if kind == fallback.SINGLE_CORRECT:
+        return scene["decision"]["correct_word"]
+    if kind == fallback.BRANCH_CHOICE:
+        return targets[0]
+    return " ".join(targets)
 
 
 @app.post("/turn")
@@ -183,9 +202,9 @@ async def turn(request: Request):
     else:
         form = await request.form()
         session_id = form.get("session_id")
-        # Mock: audio is ignored (never stored) and treated as saying the first target word.
+        # Mock: audio is ignored (never stored) and treated as saying the target words.
         sess = SESSIONS.get(session_id)
-        transcript = sess["challenge"]["target_words"][0] if sess else ""
+        transcript = mock_answer(sess) if sess else ""
 
     sess = SESSIONS.get(session_id)
     if not sess:
@@ -193,66 +212,32 @@ async def turn(request: Request):
 
     scene = SCENES[sess["scene_id"]]
     challenge = sess["challenge"]
-    targets = challenge["target_words"]
-    branch = "branches" in scene
-    said = set(words(transcript))
-    next_id, retry = None, False
+    d = fallback.turn(sess, scene, narration_for(sess, scene), transcript)
 
-    if not said:
-        result = "silence"
-        sess["silences"] += 1
-        feedback = "Shall we try together?"
-        retry = True
-        if sess["silences"] > 1 and not branch:
-            sess["tries"] += 1
-    elif branch:
-        chosen = next((br for br in scene["branches"] if br["word"] in said), None)
-        result = "hit" if chosen else "miss"
-        sess["tries"] += 1
-        if chosen:
-            feedback, next_id = f"You said {chosen['word']}!", chosen["next"]
-        elif sess["tries"] >= MAX_TRIES:
-            chosen = scene["branches"][0]
-            feedback, next_id = f"Let's take the {chosen['word']}!", chosen["next"]
-        else:
-            feedback, retry = f"Shall we go to the {targets[0]} or the {targets[1]}?", True
-    else:
-        sess["tries"] += 1
-        hit = is_hit(transcript, targets)
-        result = "hit" if hit else "miss"
-        # Fallback rule: 2 hits in a row = level up, 2 misses = level down.
-        sess["hit_streak"] = sess["hit_streak"] + 1 if hit else 0
-        sess["miss_streak"] = 0 if hit else sess["miss_streak"] + 1
-        if sess["hit_streak"] >= 2:
-            sess["level"], sess["hit_streak"] = min(3, sess["level"] + 1), 0
-        if sess["miss_streak"] >= 2:
-            sess["level"], sess["miss_streak"] = max(1, sess["level"] - 1), 0
-        if hit:
-            feedback, next_id = f"You said {' '.join(targets)}!", scene.get("next")
-        elif sess["tries"] >= MAX_TRIES:
-            feedback, next_id = "Great trying! Let's see what happens next.", scene.get("next")
-        else:
-            feedback, retry = f"Listen: {' '.join(targets)}. Your turn!", True
+    # Code-enforced limits (also guards the agent's choices later).
+    sess["level"] = max(fallback.MIN_LEVEL, min(fallback.MAX_LEVEL, sess["level"]))
+    allowed = next_ids(scene)
+    if not d["retry"] and d["next_id"] not in allowed:
+        d["next_id"] = allowed[0]
 
     sess["log"].append({
-        # Branch flow never counts a miss.
-        "result": "no_choice" if branch and result == "miss" else result,
+        "result": d["log_result"], "action": d["action"],
         "date": date.today().isoformat(), "scene_id": scene["id"], "transcript": transcript,
-        "targets": [chosen["word"]] if branch and result == "hit" else targets, "level": challenge["level"], "tries": sess["tries"],
-        "parent_note": (f"Struggled with '{' '.join(targets)}' - practise together"
-                        if result == "miss" and not retry and not branch else None),
+        "targets": [d["chosen"]] if d.get("chosen") else d["targets"] or challenge["target_words"],
+        "level": challenge["level"], "new_level": sess["level"], "tries": sess["tries"],
+        "parent_note": d["parent_note"], "reason": d["reason"], "source": "fallback",
     })
 
-    story_complete = not retry and next_id is None
-    if retry:
-        sess["challenge"] = mock_challenge(scene, sess["level"]) if not branch else challenge
-    elif next_id:
-        enter_scene(sess, next_id)
+    story_complete = not d["retry"] and d["next_id"] is None
+    if d["retry"]:
+        sess["challenge"] = d["challenge"]
+    elif d["next_id"]:
+        enter_scene(sess, d["next_id"])
 
     return {
-        "transcript": transcript, "result": result, "feedback": feedback,
-        "feedback_audio_url": f"{base_url(request)}/static/audio/feedback.mp3",
-        "retry": retry,
+        "transcript": transcript, "result": d["result"], "feedback": d["feedback"],
+        "feedback_audio_url": None,  # until real feedback audio exists
+        "retry": d["retry"],
         "scene": None if story_complete else scene_payload(sess, request),
         "story_complete": story_complete,
     }
@@ -263,6 +248,8 @@ MOCK_PROGRESS = {
     "new_words": ["forest", "brave"], "avg_answer_length": 2.4,
     "nightly": [{"date": "2026-11-14", "hits": 5, "attempts": 7}],
     "parent_notes": ["Struggled with 'lantern' - practise together"],
+    "agent_log": [{"scene": "s2", "action": "retry_with_hint",
+                   "reason": "Answer was not 'sun' (try 1 of 3); gave the authored hint"}],
 }
 
 
@@ -285,8 +272,9 @@ def progress(child_id: str):
         "target_words_hit": len(hits),
         "attempts": len(attempts),
         "new_words": sorted({w for e in hits for w in e["targets"]}),
-        "avg_answer_length": round(sum(len(words(e["transcript"])) for e in attempts) / len(attempts), 1)
+        "avg_answer_length": round(sum(len(fallback.words(e["transcript"])) for e in attempts) / len(attempts), 1)
                              if attempts else 0,
         "nightly": list(nightly.values()),
         "parent_notes": [e["parent_note"] for e in logs if e["parent_note"]],
+        "agent_log": [{"scene": e["scene_id"], "action": e["action"], "reason": e["reason"]} for e in logs],
     }

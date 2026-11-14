@@ -20,7 +20,7 @@ the answer, and adapts the difficulty. Parents set the child up and see a progre
 
 We have three hours. Build only this:
 
-- ONE fixed story: 5 scenes on the main path, 2 branch points, 7 scenes in total (`data/story.json`).
+- ONE fixed story loaded from `data/story.json`. The JSON defines the scene count, order, branch points and endings.
 - The speaking loop, end to end, on the real frontend with real voice.
 - The agent asking, assessing and adapting on every turn.
 
@@ -55,23 +55,23 @@ The backend code runs a fixed loop. It is the orchestrator. There is no orchestr
 The agent owns the child's learning. Code enforces limits around it.
 
 **The agent decides:**
-1. Ask: which word or question to put to the child in this scene, at which level.
-2. Assess: whether the answer is a hit or a miss. Be generous: "fowest" counts for "forest".
-3. Adapt: level up or down, retry with a hint, or move on. Whether to leave a parent note.
+1. Ask: use the scene's authored decision when present; otherwise choose a speaking challenge from the narration.
+2. Assess: follow the decision type and any authored answer rules. Accept reasonable pronunciation approximations.
+3. Adapt: provide encouragement, hints and appropriate difficulty within the story's rules. Leave a parent note when useful.
 
 **Code enforces:**
-- Level stays between 1 and 3. Levels apply to ordinary scenes only:
+- Level stays between 1 and 3. Levels apply to agent-generated speaking challenges only:
   1 = say one word, 2 = repeat a short phrase from the narration (2-4 words),
   3 = repeat a longer phrase or full sentence from the narration.
   The phrase is shown on screen and spoken by the narrator first, so children who cannot read
   yet can repeat it. A hit means most of the phrase's words are in the transcript.
-- At most 3 tries per scene, then the story moves on.
-- Target words are chosen by the agent and must appear in the scene's narration (on branch
-  scenes, they are the two branch words).
-- Next scene must be one of the scene's allowed branches.
+- Use the scene's `decision.max_attempts` when provided; otherwise default to 3 attempts.
+- For agent-generated speaking challenges, choose target words from the narration.
+- For authored decisions, use the supplied prompt, options, correct answer and hint.
+- Follow only the scene's declared `next` or branch destinations. Never invent a scene.
 - Every decision is logged for the dashboard.
-- Fallback: if the model takes over 6 seconds or returns something invalid, use the simple rule
-  (2 hits in a row = level up, 2 misses = level down plus a hint) and a template line.
+- If the model takes over 6 seconds or returns something invalid, use a deterministic fallback
+  that respects the current decision type, answer rules and retry limit.
 
 Build the fallback rule first. It takes minutes and the demo must never stall.
 
@@ -99,34 +99,37 @@ Not agent tools (code calls these every turn): `voice.transcribe(audio)`, `voice
 6. Code turns the agent's line into speech and returns the response.
 
 After each result:
-- Hit: praise that names the word ("You said 'lantern'!"), then the next scene. Never comment
-  on pronunciation quality, because we cannot measure it.
-- Miss: never say "wrong". Model the word and invite another try. Replay only the challenge,
-  not the narration.
-- Third miss: praise the effort, move on, leave a parent note.
-- Silence: a gentle "shall we try together?" and do not count it as a miss the first time.
+- Hit: give brief, warm praise, then follow the scene's transition rules. Never claim to measure pronunciation quality.
+- Miss: give encouraging feedback and a hint. Replay only the challenge, not the narration.
+- When attempts are exhausted: model the answer where appropriate, praise the effort, advance and leave a parent note.
+- Silence: offer gentle encouragement; do not count the first silence as a miss.
 
-Branch scenes:
-- The branch word is the challenge. Saying either option is a hit and chooses the path.
-  This is always one word, whatever the child's level.
-- Neither word, first time: an encouraging repeat of the two options.
-- Neither word, second time: the agent proposes one ("Shall we take the bridge?").
-  "Yes" takes it, "no" takes the other, anything else takes the proposed one.
-- No miss is counted during this flow.
+Decision types:
+- `single_correct`: a learning question with a correct answer. Use `correct_word` to assess the answer; other options trigger the authored retry or hint behaviour.
+- `branch_choice`: a story preference. Every declared branch option is valid and selects its corresponding destination. Do not count an unrecognised choice as a learning miss.
+- No `decision`: the agent creates a speaking challenge from the narration.
+
+For an unrecognised branch choice, repeat the options. After repeated uncertainty, propose an
+option and allow the child to accept it or choose another.
+
+Feedback must remain supportive. An answer may be incorrect without telling the child "you're wrong".
 
 ## Story file (`data/story.json`)
 
-```json
-{ "title": "", "scenes": [ {
-  "id": "s1", "narration": "60-90 words", "image_prompt": "background only, no characters",
-  "next": "s2"
-} ] }
-```
-Branch scenes use `"branches": [{"word": "bridge", "label": "Cross the bridge", "icon": "bridge", "next": "s3a"}, {"word": "boat", "label": "Take the boat", "icon": "boat", "next": "s3b"}]`
-in place of `"next"`. There is no pre-written word list: the agent picks each scene's target
-words from the narration.
-Branches follow scene 2 (s3a/s3b) and scene 4 (s5a/s5b). Both final scenes end calmly with the
-hero getting ready for sleep.
+The story file defines the authored content and navigation.
+
+- Top-level fields include `title`, optional `description`, optional `start_scene`, and `scenes`.
+- Each scene has a unique `id`, string `narration`, `image_prompt`, and optional `avatar_position`.
+- Narration length should suit the audience; there is no fixed word count.
+- Use `next` for a linear transition, `branches` for a choice of destinations, and `next: null` for an ending.
+- Branch entries contain `word`, `label`, `icon`, and `next`; labels and icons supply the frontend's choice cards.
+- An optional `decision` defines an authored question or choice, including its type, prompt, options, answer rules, hints and retry behaviour.
+- Without an authored decision, the agent generates a speaking challenge.
+- All scene references must exist. Every path must eventually reach an ending.
+- Endings should provide a calm bedtime wind-down.
+
+The backend must explicitly implement supported decision behaviours. JSON action names describe
+behaviour; they are not executable instructions.
 
 ## Data contract (fixed; examples in `contract/`)
 
@@ -138,16 +141,16 @@ hero getting ready for sleep.
 returns
 ```json
 { "session_id": "abc", "child_id": "mia-1", "avatar_url": null,
-  "scene": { "id": "s1", "index": 1, "total": 5, "narration": "...", "narration_audio_url": "https://...",
-             "image_url": "https://.../s1.png", "avatar_position": {"x": 0.3, "y": 0.62, "scale": 0.35},
-             "challenge": { "level": 1, "prompt": "Can you say 'forest'?", "target_words": ["forest"] },
+  "scene": { "id": "s1", "index": 1, "total": 5, "narration": "...", "narration_audio_url": null,
+             "image_url": "https://.../s1.png", "avatar_position": {"x": 0.26, "y": 0.64, "scale": 0.32},
+             "challenge": { "level": 1, "prompt": "Can you say 'afternoon'?", "target_words": ["afternoon"] },
              "choices": null } }
 ```
 `POST /turn`: multipart form with `session_id` and `audio`, OR JSON
-`{ "session_id": "abc", "transcript": "forest!" }` for testing. Returns
+`{ "session_id": "abc", "transcript": "afternoon!" }` for testing. Returns
 ```json
-{ "transcript": "forest", "result": "hit", "feedback": "You said forest!",
-  "feedback_audio_url": "https://...", "retry": false, "scene": { "...same shape as above..." },
+{ "transcript": "afternoon", "result": "hit", "feedback": "You said 'afternoon'!",
+  "feedback_audio_url": null, "retry": false, "scene": { "...same shape as above..." },
   "story_complete": false }
 ```
 `retry: true` means stay on the same scene; `scene` repeats with the new challenge.
@@ -157,12 +160,21 @@ returns
 { "child_name": "Mia", "sessions": 3, "target_words_hit": 14, "attempts": 20,
   "new_words": ["forest", "brave"], "avg_answer_length": 2.4,
   "nightly": [{"date": "2026-11-14", "hits": 5, "attempts": 7}],
-  "parent_notes": ["Struggled with 'lantern' - practise together"] }
+  "parent_notes": ["Struggled with 'lantern' - practise together"],
+  "agent_log": [{"scene": "s2", "action": "retry_with_hint",
+                 "reason": "Answer was not 'sun' (try 1 of 3); gave the authored hint"}] }
 ```
+`agent_log` is optional: one entry per logged decision (`action` is advance, retry, retry_with_hint
+or move_on). Reasons never quote the child's words.
 `avatar_url` is null: the frontend draws the avatar from `pronouns` and `avatar`; the backend only stores them.
-`choices` is null on ordinary scenes. On branch scenes it lists the options for the tap cards:
-`[{"word": "lantern", "label": "Lift the lantern", "icon": "lantern"}, {"word": "owl", "label": "Ask the owl", "icon": "owl"}]`.
-`word` must match the branch words in `story.json`, so branches there carry `label` and `icon` too. Change field names only by team
+`narration_audio_url` and `feedback_audio_url` are null until real audio exists; show the text meanwhile.
+`scene.avatar_position` comes from the scene in `story.json` (default `{"x": 0.3, "y": 0.62, "scale": 0.35}`).
+Narration placeholders `{CHILD_NAME}`, `{PET}`, `{THEY}`, `{THEM}`, `{THEIR}` are filled from `/session/start`.
+`choices` lists the tap cards, each `{"word", "label", "icon"}`: the `decision.options` on `single_correct`
+scenes, the `branches` on `branch_choice` scenes, and null otherwise. Example (s3):
+`[{"word": "bridge", "label": "Cross the bridge", "icon": "bridge"}, {"word": "boat", "label": "Take the boat", "icon": "boat"}]`.
+On `single_correct` scenes `challenge.target_words` lists all the options, so the screen never gives the answer away.
+`word` must match the words in `story.json`, so options and branches there carry `label` and `icon` too. Change field names only by team
 agreement, then update `contract/` and tell Ana.
 
 ## Audio
@@ -184,8 +196,8 @@ agreement, then update `contract/` and tell Ana.
 
 | Hour | Anvay (backend, agent) | Ines (voice) | Kiko (content, testing) |
 |---|---|---|---|
-| 1, to 16:40 | Mock backend, deployed. Send Ana the link. | Transcribe and speak working in a test script. Pick the voice. | `story.json` committed (narration and branches only). One test background on fal. |
-| 2, to 17:40 | Real `/turn`: fallback rule, then the agent with its tools and limits. | Voice wired into the backend. | Seven backgrounds. Agent system prompt with Anvay. |
+| 1, to 16:40 | Mock backend, deployed. Send Ana the link. | Transcribe and speak working in a test script. Pick the voice. | `story.json` committed. One test background on fal. |
+| 2, to 17:40 | Real `/turn`: fallback rule, then the agent with its tools and limits. | Voice wired into the backend. | Backgrounds for every scene. Agent system prompt with Anvay. |
 | 3, to 18:40 | Fix integration bugs. Measure turn delay. | Test real speech on Ana's page. | Run the tests and the full story. Record one clean run. |
 
 Ana: Figma Make frontend (all screens, mic, audio playback, mock dashboard), video, lead presenter.
@@ -203,7 +215,8 @@ Checkpoints:
 | A near miss ("fowest") | agent accepts it as a hit |
 | A branch word | story follows that branch |
 | Neither branch word, twice | agent proposes one; "yes" accepts it |
-| Three misses on one scene | easier level, then moves on with a parent note |
+| Incorrect answer to a `single_correct` question | authored hint or retry; advances when the attempt limit is reached |
+| Attempt limit reached (default: three misses) | models the answer where appropriate, then moves on with a parent note |
 | Off-topic or personal | gentle redirect, nothing personal repeated |
 
 ## After the MVP, in this order
