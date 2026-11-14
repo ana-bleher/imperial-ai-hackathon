@@ -18,7 +18,8 @@
     "choices": [
       {"word": "sun", "label": "Sun", "icon": "sun"},
       {"word": "moon", "label": "Moon", "icon": "moon"}
-    ]
+    ],
+    "avatar_url": null
   },
   "story_complete": false
 }
