@@ -2,8 +2,11 @@
 and afterwards whenever the agent is slow (>6 s) or returns something invalid.
 
 Rules (CLAUDE.md), by the scene's decision type:
-- No decision (speaking challenge): level 1-3. 2 hits in a row = level up. 2 misses in a row =
-  level down + hint. At most max_attempts (default 3) tries, then move on with a parent note.
+- No decision (speaking challenge): the scene's authored `challenge` if it has one, else a say-it
+  challenge from the narration. Assessed by question type (agent/questions.py). Level 1-3:
+  2 hits in a row = level up, 2 misses in a row = level down. A miss with tries left steps the
+  question down one rung (count -> choice -> say it). At most max_attempts (default 3) tries,
+  then model the answer and move on with a parent note.
 - single_correct: the correct_word is a hit. Anything else is a miss: authored hint + retry,
   until max_attempts, then reveal the answer, advance and leave a parent note.
   Never changes the level (levels apply to speaking challenges only).
@@ -21,6 +24,8 @@ Every decision carries a short `reason` for the parent dashboard's agent_log
 """
 import re
 from difflib import SequenceMatcher
+
+from agent import questions
 
 MIN_LEVEL, MAX_LEVEL = 1, 3
 MAX_TRIES = 3  # default when the scene's decision has no max_attempts
@@ -52,7 +57,7 @@ STOPWORDS = {
 # ---------- text helpers ----------
 
 def words(text: str) -> list[str]:
-    return re.findall(r"[a-z']+", (text or "").lower())
+    return re.findall(r"[a-z0-9']+", (text or "").lower())
 
 
 # "sun, no, moon" / "sun... I mean moon": only what comes after the last of these counts.
@@ -117,14 +122,16 @@ def _sentences(narration: str) -> list[list[str]]:
     return out
 
 
-def pick_key_word(narration: str, practised: set[str] = frozenset(),
-                  exclude: set[str] = frozenset()) -> str:
-    """Simple rule: prefer nouns, i.e. the word ending "a/the (+1 adjective) X" ("a quiet forest" -> forest),
-    then any content word (3-9 letters). Skip words already practised when possible."""
-    def ok(w):
-        return 3 <= len(w) <= 9 and w not in STOPWORDS and w not in exclude and w.isalpha()
+def _ok_word(w: str, exclude: set[str]) -> bool:
+    return 3 <= len(w) <= 9 and w not in STOPWORDS and w not in exclude and w.isalpha()
 
-    nouns = []
+
+def nouns(narration: str, exclude: set[str] = frozenset()) -> list[str]:
+    """Likely nouns: the word ending "a/the (+1 adjective) X" ("a quiet forest" -> forest)."""
+    def ok(w):
+        return _ok_word(w, exclude)
+
+    found = []
     for toks in _sentences(narration):
         lower = [t.lower() for t in toks]
         for i, t in enumerate(lower):
@@ -134,8 +141,15 @@ def pick_key_word(narration: str, practised: set[str] = frozenset(),
             if len(run) == 2 and run[1].endswith("s") and not run[0].endswith("s"):
                 run = run[:1]  # "the path reaches": the second word is probably a verb
             if run:
-                nouns.append(run[-1])
-    candidates = nouns + [w for w in words(narration) if ok(w)]
+                found.append(run[-1])
+    return found
+
+
+def pick_key_word(narration: str, practised: set[str] = frozenset(),
+                  exclude: set[str] = frozenset()) -> str:
+    """Simple rule: prefer nouns, then any content word (3-9 letters).
+    Skip words already practised when possible."""
+    candidates = nouns(narration, exclude) + [w for w in words(narration) if _ok_word(w, exclude)]
     fresh = [w for w in candidates if w not in practised]
     if fresh:
         return fresh[0]
@@ -168,7 +182,10 @@ def make_challenge(narration: str, key_word: str, level: int, hint: bool = False
     prompt = f"Can you say '{phrase}'?"
     if hint:
         prompt = f"Let's try together. Listen: '{phrase}'. Can you say it?"
-    return {"level": level, "prompt": prompt, "target_words": words(phrase)}
+    targets = words(phrase)
+    return {"level": level, "prompt": prompt, "target_words": targets,
+            "question_type": questions.SAY, "accept": targets,
+            "reason": f"Fallback say challenge from the narration at level {level}"}
 
 
 def decision_type(scene: dict) -> str | None:
@@ -191,14 +208,16 @@ def branch_challenge(scene: dict, proposed: dict | None = None) -> dict:
     else:
         prompt = (scene.get("decision") or {}).get("prompt") or \
             "Shall we go to the " + " or the ".join(words_) + "?"
-    return {"level": 1, "prompt": prompt, "target_words": words_}
+    return {"level": 1, "prompt": prompt, "target_words": words_, "question_type": questions.CHOICE,
+            "reason": "Authored story choice"}
 
 
 def question_challenge(scene: dict, level: int) -> dict:
     """single_correct: the authored prompt. Target words are all the options (not just the answer),
     so the screen never gives the answer away."""
     dec = scene["decision"]
-    return {"level": level, "prompt": dec["prompt"], "target_words": [o["word"] for o in dec["options"]]}
+    return {"level": level, "prompt": dec["prompt"], "target_words": [o["word"] for o in dec["options"]],
+            "question_type": questions.CHOICE, "reason": "Authored quiz question"}
 
 
 def scene_choices(scene: dict) -> list[dict] | None:
@@ -216,7 +235,7 @@ def scene_choices(scene: dict) -> list[dict] | None:
 # ---------- state ----------
 
 def new_session_state() -> dict:
-    return {"level": 1, "hit_streak": 0, "miss_streak": 0, "practised": []}
+    return {"level": 1, "hit_streak": 0, "miss_streak": 0, "practised": [], "question_types": []}
 
 
 def enter_scene(state: dict, scene: dict, narration: str, exclude: set[str] = frozenset()) -> dict:
@@ -230,8 +249,19 @@ def enter_scene(state: dict, scene: dict, narration: str, exclude: set[str] = fr
         state["challenge"] = question_challenge(scene, state["level"])
     else:
         state["key_word"] = pick_key_word(narration, set(state["practised"]), exclude)
-        state["challenge"] = make_challenge(narration, state["key_word"], state["level"])
+        authored = questions.authored_challenge(scene, state["level"])
+        if authored:  # the scene's own question comes first
+            state["challenge"] = authored
+            state["key_word"] = questions.key_word(authored) or state["key_word"]
+        else:
+            state["challenge"] = make_challenge(narration, state["key_word"], state["level"])
+        record_type(state, state["challenge"])
     return state["challenge"]
+
+
+def record_type(state: dict, challenge: dict) -> None:
+    """Question types asked on entering speaking scenes, so the agent can vary them."""
+    state.setdefault("question_types", []).append(questions.qtype(challenge))
 
 
 def _decision(**kw) -> dict:
@@ -255,33 +285,42 @@ def turn(state: dict, scene: dict, narration: str, transcript: str) -> dict:
 
 def _scene_turn(state: dict, scene: dict, narration: str, transcript: str) -> dict:
     challenge = state["challenge"]
+    qt = questions.qtype(challenge)
     phrase = " ".join(challenge["target_words"])
+    answer = questions.answer_word(challenge)
     key = state["key_word"]
 
     if not words(transcript):
         state["silences"] += 1
         if state["silences"] == 1:
+            line = f"Listen: '{phrase}'." if qt == questions.SAY else challenge["prompt"]
             return _decision(result="silence", action="retry", retry=True, challenge=challenge,
-                             feedback=f"Shall we try together? Listen: '{phrase}'.",
+                             feedback=f"Shall we try together? {line}",
                              reason="First silence: offered to try together, not counted as a miss")
         # Later silences count as a miss.
 
     state["tries"] += 1
-    hit = is_hit(transcript, challenge["target_words"])
-
-    if hit:
+    if questions.is_answer(challenge, transcript):
         state["hit_streak"] += 1
         state["miss_streak"] = 0
-        reason = f"Heard '{phrase}' at level {challenge['level']}"
+        if qt == questions.SAY:
+            reason = f"Heard '{phrase}' at level {challenge['level']}"
+            named = phrase if len(challenge["target_words"]) <= 4 else key
+            feedback = f"You said '{named}'!"
+        elif qt == questions.OPEN:
+            reason = f"Gave an answer of two or more words to an open question at level {challenge['level']}"
+            feedback = "What a lovely idea!"
+        else:
+            reason = f"Answered the {qt} question with '{answer}' at level {challenge['level']}"
+            feedback = f"Yes, {answer}! Well done!"
         if state["hit_streak"] >= 2:
             if state["level"] < MAX_LEVEL:
                 reason += f"; two hits in a row, level up to {state['level'] + 1}"
             state["level"] = min(MAX_LEVEL, state["level"] + 1)
             state["hit_streak"] = 0
         state["practised"] = sorted(set(state["practised"]) | {key})
-        named = phrase if len(challenge["target_words"]) <= 4 else key
         return _decision(result="hit", action="advance", next_id=scene.get("next"),
-                         feedback=f"You said '{named}'!", reason=reason)
+                         feedback=feedback, reason=reason)
 
     state["miss_streak"] += 1
     state["hit_streak"] = 0
@@ -292,22 +331,36 @@ def _scene_turn(state: dict, scene: dict, narration: str, transcript: str) -> di
 
     limit = max_attempts(scene)
     if state["tries"] >= limit:
+        if qt == questions.OPEN:  # no single answer to model
+            feedback = "What great trying! Let's see what happens next."
+        elif qt == questions.SAY:
+            feedback = f"What great trying! It goes '{phrase}'. Let's see what happens next."
+        else:  # model the answer
+            feedback = f"What great trying! It was {answer}. Let's see what happens next."
         return _decision(result="miss", action="move_on", next_id=scene.get("next"),
-                         feedback="What great trying! Let's see what happens next.",
+                         feedback=feedback,
                          parent_note=f"Struggled with '{key}' - practise together",
                          reason=f"'{key}' not heard after {limit} tries; moved on")
 
-    if level_down:
-        new = make_challenge(narration, key, state["level"], hint=True)
-        state["challenge"] = new
+    new = questions.step_down(challenge, narration, key, state["level"])
+    state["challenge"] = new
+    if new is challenge:
+        return _decision(result="miss", action="retry", retry=True, challenge=challenge,
+                         feedback=f"Good try! Listen: '{phrase}'. Your turn!",
+                         reason=f"'{phrase}' not heard (try {state['tries']} of {limit}); modelled it again")
+    if qt == questions.SAY:
         target = " ".join(new["target_words"])
         return _decision(result="miss", action="retry_with_hint", retry=True, challenge=new,
                          feedback=f"Nice try! It starts with '{target[0]}'. Listen: '{target}'. Your turn!",
                          reason=f"Two misses in a row; easier level {state['level']} with a hint")
-
-    return _decision(result="miss", action="retry", retry=True, challenge=challenge,
-                     feedback=f"Good try! Listen: '{phrase}'. Your turn!",
-                     reason=f"'{phrase}' not heard (try {state['tries']} of {limit}); modelled it again")
+    new_type = questions.qtype(new)
+    feedback = ("Good thinking! Let's say it together." if new_type == questions.SAY
+                else "Good thinking! Here's a little help.")
+    return _decision(result="miss", action="retry_with_hint", retry=True, challenge=new,
+                     feedback=feedback,
+                     reason=f"{qt} question not answered (try {state['tries']} of {limit}); "
+                            f"stepped down to {new_type}"
+                            + (f", level {state['level']}" if level_down else ""))
 
 
 def _question_turn(state: dict, scene: dict, transcript: str) -> dict:

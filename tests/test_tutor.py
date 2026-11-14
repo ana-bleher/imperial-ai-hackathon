@@ -147,7 +147,8 @@ def test_agent_level_up_and_next_scene_challenge(monkeypatch):
     d, meta = decide(s, "forest", next_narration=NEXT_NARRATION)
     assert meta["source"] == "agent" and s["level"] == 2
     assert d["next_challenge"] == {"level": 2, "prompt": "Can you say 'silver river'?",
-                                   "target_words": ["silver", "river"]}
+                                   "target_words": ["silver", "river"], "question_type": "say",
+                                   "accept": ["silver", "river"], "reason": "Agent chose a say question at level 2"}
 
 
 def test_agent_miss_retries_with_its_own_challenge(monkeypatch):
@@ -190,7 +191,7 @@ def test_agent_parent_note_is_kept(monkeypatch):
     (miss("retry_with_hint", "Try again!", 1, ("ask", {"prompt": "Say 'dragon'?", "target_words": ["dragon"], "level": 1})),
      "not in narration"),
     (miss("retry_with_hint", "Try again!", 1,
-          ("ask", {"prompt": "Say 'quiet forest'?", "target_words": ["quiet", "forest"], "level": 1})), "level 1 needs"),
+          ("ask", {"prompt": "Say 'quiet forest'?", "target_words": ["quiet", "forest"], "level": 1})), "level 1 say needs"),
     ([("assess", {"result": "hit", "reason": "ok"})], "next_step not called"),
     ([("unknown_tool", {})], "unknown tool"),
 ])
