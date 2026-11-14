@@ -1,148 +1,232 @@
-# CLAUDE.md — project plan (read this first)
+# CLAUDE.md — project brief (read this first)
+
+This is the single source of truth. Where PROMPTS.md disagrees with this file, this file wins
+(PROMPTS.md sections C and D describe an older tool set: ignore those parts).
 
 ## What we're building
-**[APP NAME]**: an interactive story-time web app for children aged **4–6**. The child creates their
-own avatar, becomes the hero of a short illustrated story, and **speaks** to move the story forward.
-Core goal: **speaking and vocabulary practice** (not speech therapy). One chapter per night,
-max ~15 minutes, calm wind-down ending. Parents log in, set up the child and see progress.
 
-- **Main track:** 02 Voice, Vision & Generative Media
-- **Sub-bounties (max 2):** ElevenLabs (real-time voice agent) + fal (generative images)
-- **Cross-cutting:** Figma Best-Designed AI Product (frontend built with Figma Make) · Adaption (stretch)
-- **Deadline:** Devpost **Sun 12:00** (write-up + public GitHub link + 2-min video).
-  Building closes Sat 21:00, reopens Sun 10:00. Feature freeze Sun ~09:30.
+An interactive story-time web app for children aged 4–6. The child hears a short illustrated
+story, and speaks to move it forward. The goal is speaking and vocabulary practice. It is not
+speech therapy and we never claim it is.
 
-## Vision
-Long term: an online archive of real (physical) children's books, each turned into an interactive
-story the child lives through. For the hackathon: ONE original story we write ourselves.
+An AI agent acts as the child's tutor inside the story. It decides what to ask the child, judges
+the answer, and adapts the difficulty. Parents set the child up and see a progress page.
 
-## Core principles
-- **Ownership:** the child is the hero (own avatar, own name, chosen pronouns she/he/they) and makes
-  real choices at 2 decision points that change what happens next.
-- **Adaptive language, fixed plot:** the plot stays the same, but the agent adapts the LANGUAGE to the
-  child's level: narration complexity (level 1 short simple sentences → level 3 richer sentences and
-  new words) and the speaking challenge (1 word → short phrase → full sentence). It always nudges
-  one step above what the child just managed, to encourage learning.
+- Hackathon track: Voice, Vision & Generative Media
+- Sponsor bounties: ElevenLabs (voice) and fal (images). Frontend is built in Figma Make.
+- Submission: Devpost, Sunday 12:00. Needs a write-up, a public GitHub repo and a 2-minute video.
 
-## Priorities (in this order)
-1. **Speaking loop (must):** scene → narration → child speaks → agent evaluates → feedback → story adapts.
-2. **Parent progress page (must, small).**
-3. **Avatar + AI backgrounds (should):** drawn avatar (frontend) on fal-painted scene backgrounds.
-4. **Stretch:** real-time ElevenLabs voice agent, Adaption fine-tune, per-scene generated images, art styles.
+## Right now: MVP by 18:40 Saturday
 
-## MVP scope
-- Demo parent login (any input works) → create child (name, age 4/5/6, 4 avatar traits). No photo uploads.
-- ONE story, 5 scenes, 2 branch points (data/story.json).
-- Each scene: narration audio → speaking challenge at difficulty level 1–3 → feedback → next scene.
-- Agent adapts within restricted options: branch from the child's word, difficulty up/down, hint, retry.
-- Progress metrics stored per session; parent dashboard.
+We have three hours. Build only this:
+
+- ONE fixed story: 5 scenes on the main path, 2 branch points, 7 scenes in total (`data/story.json`).
+- The speaking loop, end to end, on the real frontend with real voice.
+- The agent asking, assessing and adapting on every turn.
+
+Not in the MVP. Do not build these until a clean full run has been recorded:
+
+| Cut | Use instead |
+|---|---|
+| Live story generation | The fixed story |
+| Avatar generation | One default character image |
+| Real dashboard data | Mock data in the frontend |
+| Auto-listening | Hold-to-talk button |
+| Real-time ElevenLabs agent | Speech-to-text and text-to-speech calls |
 
 ## Architecture
+
 ```
-Figma Make app (hosted)  ──HTTPS──▶  FastAPI backend (deployed on Render)  ──▶  Story agent (Claude)
- mic recording (MediaRecorder)          /session/start  /turn  /progress           tools below
- audio playback, images                 ElevenLabs STT + TTS · fal images · /static audio + images
+Figma Make frontend  --HTTPS-->  FastAPI app agent/main.py (Render)  -->  Tutor agent (claude-sonnet-5-5)
+ mic recording, audio playback     /session/start  /turn  /progress
+ scene images                      ElevenLabs speech-to-text + text-to-speech
+                                   /static audio + images (fal backgrounds)
 ```
-- Backend must allow CORS from any origin and be reachable over HTTPS (Figma Make can't call localhost).
-- Audio: backend saves TTS mp3 files to `static/` and returns their URLs.
-- Narration audio for all scenes is generated right after /session/start (in the background), so the
-  story never waits.
 
-### Avatar + images (DECIDED)
-- The child's avatar is DRAWN IN THE FRONTEND (Figma Make) from the chosen traits (pronouns, skin tone,
-  hair style, hair colour, outfit, animal friend). It is instant and identical in every scene.
-  No AI generation for the avatar. Backend just stores the traits; `avatar_url` may be null.
-- AI (fal) paints only the STORY BACKGROUNDS: one per scene, same picture-book style, no characters,
-  pre-made and stored in `static/scenes/`. The frontend places the avatar on top at `avatar_position`.
+- The backend allows CORS from any origin and must be reachable over HTTPS.
+- The backend accepts whatever audio format the browser sends, not only webm.
+- TTS audio is saved under `static/audio/` and returned as URLs; scene backgrounds live in `static/scenes/`.
 
-### Turn-taking (DECIDED)
-- The child taps "Start the story" once (unlocks mic + audio). After that it is hands-free:
-  narration ends → "Your turn!" → mic opens automatically → stops after ~1.5 s silence (max 8 s)
-  → audio sent to /turn → feedback → next scene.
-- At decision points the child SAYS the option ("boat"). If no answer within 4 s, the two choice
-  cards fade in so the child can tap instead (voice still works). Silence on normal challenges →
-  one gentle re-prompt.
-- Stretch (ElevenLabs bounty): fully real-time conversation via an ElevenLabs agent.
+## Who decides what
 
-### Agent tools (tools/, one file per tool)
-- `get_scene(scene_id)` → scene text, challenge per level, allowed branches (from data/story.json)
-- `evaluate_answer(transcript, target_words)` → plain Python: hit/miss, matched words, word count
-- `choose_next(scene_id, transcript)` → next scene id, ONLY from allowed branches
-- `set_difficulty(session_id, level)` → 1 = one word, 2 = short phrase, 3 = full sentence
-- `log_progress(session_id, metrics)` → attempts, hits, new words, answer length
-- `notify_parent(session_id, note)` → human-in-the-loop note (e.g. 3 misses on one scene)
-- `voice.transcribe(audio)` / `voice.speak(text)` → ElevenLabs
+The backend code runs a fixed loop. It is the orchestrator. There is no orchestrator agent.
+The agent owns the child's learning. Code enforces limits around it.
 
-Difficulty rule: 2 hits in a row → level up (max 3); 2 misses → level down (min 1) + hint;
-3 misses on the same scene → praise the effort, move on, notify_parent.
+**The agent decides:**
+1. Ask: which word or question to put to the child in this scene, at which level.
+2. Assess: whether the answer is a hit or a miss. Be generous: "fowest" counts for "forest".
+3. Adapt: level up or down, retry with a hint, or move on. Whether to leave a parent note.
 
-### Data contract (fixed — example files in `contract/`)
+**Code enforces:**
+- Level stays between 1 and 3. Levels apply to ordinary scenes only:
+  1 = say one word, 2 = repeat a short phrase from the narration (2-4 words),
+  3 = repeat a longer phrase or full sentence from the narration.
+  The phrase is shown on screen and spoken by the narrator first, so children who cannot read
+  yet can repeat it. A hit means most of the phrase's words are in the transcript.
+- At most 3 tries per scene, then the story moves on.
+- Target words are chosen by the agent and must appear in the scene's narration (on branch
+  scenes, they are the two branch words).
+- Next scene must be one of the scene's allowed branches.
+- Every decision is logged for the dashboard.
+- Fallback: if the model takes over 6 seconds or returns something invalid, use the simple rule
+  (2 hits in a row = level up, 2 misses = level down plus a hint) and a template line.
+
+Build the fallback rule first. It takes minutes and the demo must never stall.
+
+## Agent tools (`tools/`, one file per tool)
+
+- `get_child_state(session_id)` → level, words practised, recent hits and misses
+- `ask(prompt, target_words, level)` → sets the challenge for the scene
+- `assess(result, reason)` → records "hit" or "miss" and why
+- `set_difficulty(level)` → 1, 2 or 3
+- `next_step(action)` → "advance", "retry_with_hint" or "move_on"
+- `notify_parent(note)` → short note for the parent dashboard
+
+One model call per turn. Everything the agent says to the child is ONE short, warm sentence.
+
+Not agent tools (code calls these every turn): `voice.transcribe(audio)`, `voice.speak(text)`, in `tools/voice.py`.
+
+## One turn
+
+1. Frontend shows the scene and plays the narration, then the challenge.
+2. Child holds the button and speaks. Frontend posts the audio to `/turn`.
+3. Code transcribes it with ElevenLabs.
+4. Agent assesses the answer, sets the difficulty and picks the next step.
+5. Code checks the agent's choices against the limits above.
+6. Code turns the agent's line into speech and returns the response.
+
+After each result:
+- Hit: praise that names the word ("You said 'lantern'!"), then the next scene. Never comment
+  on pronunciation quality, because we cannot measure it.
+- Miss: never say "wrong". Model the word and invite another try. Replay only the challenge,
+  not the narration.
+- Third miss: praise the effort, move on, leave a parent note.
+- Silence: a gentle "shall we try together?" and do not count it as a miss the first time.
+
+Branch scenes:
+- The branch word is the challenge. Saying either option is a hit and chooses the path.
+  This is always one word, whatever the child's level.
+- Neither word, first time: an encouraging repeat of the two options.
+- Neither word, second time: the agent proposes one ("Shall we take the bridge?").
+  "Yes" takes it, "no" takes the other, anything else takes the proposed one.
+- No miss is counted during this flow.
+
+## Story file (`data/story.json`)
+
+```json
+{ "title": "", "scenes": [ {
+  "id": "s1", "narration": "60-90 words", "image_prompt": "background only, no characters",
+  "next": "s2"
+} ] }
+```
+Branch scenes use `"branches": [{"word": "bridge", "next": "s3a"}, {"word": "boat", "next": "s3b"}]`
+in place of `"next"`. There is no pre-written word list: the agent picks each scene's target
+words from the narration.
+Branches follow scene 2 (s3a/s3b) and scene 4 (s5a/s5b). Both final scenes end calmly with the
+hero getting ready for sleep.
+
+## Data contract (fixed; examples in `contract/`)
+
 `POST /session/start`
 ```json
-{ "child_name": "Mia", "age": 5, "pronouns": "she", "avatar": {"skin_tone": "medium", "hair_style": "curly", "hair_colour": "red", "outfit": "dress", "pet": "fox", "fav_colour": "green"} }
+{ "child_name": "Mia", "age": 5, "avatar": {"hair": "curly red", "outfit": "yellow raincoat", "pet": "fox", "fav_colour": "green"} }
 ```
-→
+returns
 ```json
 { "session_id": "abc", "child_id": "mia-1", "avatar_url": "https://.../avatar.png",
   "scene": { "id": "s1", "index": 1, "total": 5, "narration": "...", "narration_audio_url": "https://...",
              "image_url": "https://.../s1.png", "avatar_position": {"x": 0.3, "y": 0.62, "scale": 0.35},
-             "challenge": { "level": 1, "prompt": "Can you say 'forest'?", "target_words": ["forest"] },
-             "choices": null } }
+             "challenge": { "level": 1, "prompt": "Can you say 'forest'?", "target_words": ["forest"] } } }
 ```
-`choices` is null, or at a decision point: `[{"word": "bridge", "label": "Cross the bridge", "icon": "bridge"}, {"word": "boat", "label": "Take the boat", "icon": "boat"}]`
+`POST /turn`: multipart form with `session_id` and `audio`, OR JSON
+`{ "session_id": "abc", "transcript": "forest!" }` for testing. Returns
 ```json
-```
-`POST /turn` — multipart form: `session_id`, `audio` (webm) — OR JSON `{ "session_id": "abc", "transcript": "forest!" }` for testing
-→
-```json
-{ "transcript": "forest", "result": "hit", "feedback": "Brilliant! You said forest!",
-  "feedback_audio_url": "https://...", "retry": false, "scene": { ...same shape as above... },
+{ "transcript": "forest", "result": "hit", "feedback": "You said forest!",
+  "feedback_audio_url": "https://...", "retry": false, "scene": { "...same shape as above..." },
   "story_complete": false }
 ```
-(`retry: true` → stay on the same scene, `scene` repeats with an easier challenge.)
+`retry: true` means stay on the same scene; `scene` repeats with the new challenge.
 
 `GET /progress/{child_id}`
 ```json
 { "child_name": "Mia", "sessions": 3, "target_words_hit": 14, "attempts": 20,
   "new_words": ["forest", "brave"], "avg_answer_length": 2.4,
   "nightly": [{"date": "2026-11-14", "hits": 5, "attempts": 7}],
-  "parent_notes": ["Struggled with 'lantern' — practise together"] }
+  "parent_notes": ["Struggled with 'lantern' - practise together"] }
 ```
-Change field names only by team agreement; update `contract/` and tell the frontend.
+For the MVP, `avatar_url` is the default character image. Change field names only by team
+agreement, then update `contract/` and tell Ana.
 
-## Models & services
-- Story agent (feedback + decisions): `claude-sonnet-5-5`. Keep replies ≤ 2 short sentences for the child.
-- Building: Claude Code with Opus 5.5; switch to `claude-fable-5-2` for hard bugs/design.
-- Speech-to-text + text-to-speech: ElevenLabs (keys in .env). Images: fal. Frontend: Figma Make.
+## Audio
+
+- Narration for all scenes is generated in the background right after `/session/start`.
+- The agent's challenge, hint and feedback lines are generated during the turn, so keep them short.
+- Feedback is spoken AND shown as text. Children this age mostly cannot read.
 
 ## Safety rules (non-negotiable)
-- Never ask the child for personal information; never repeat personal info back.
-- Stay inside the story; off-topic/upsetting input → gentle redirect; notify_parent if distressed.
-- No scary or violent content; illustrated styles only; no photos of children.
-- Audio is processed per turn and not stored; only metrics are stored.
 
-## Owners
-- **Anvay:** backend (FastAPI, agent loop, tools, deployment, contract), CLAUDE.md, check-ins
-- **Ines:** voice (ElevenLabs STT/TTS), turn-taking support on the backend, real-time voice + Adaption stretch (remote after 19:30)
-- **Kiko (Francisco):** story.json + scene illustrations, tests, integration checks, Devpost, write-up, deck, demo
-- **Ana:** Figma Make frontend (all screens, mic, audio, dashboard), UX, video, lead presenter
+- Never ask the child for personal information and never repeat it back.
+- Stay inside the story. Off-topic or upsetting input gets a gentle redirect, and a parent note
+  if the child seems distressed.
+- Nothing scary or violent. Illustrated styles only. No photos of children.
+- Our server does not store the child's audio. It is sent to ElevenLabs for transcription. Only
+  metrics are stored.
 
-## Repo layout (matches the existing repo)
+## Owners and the three hours
+
+| Hour | Anvay (backend, agent) | Ines (voice) | Kiko (content, testing) |
+|---|---|---|---|
+| 1, to 16:40 | Mock backend, deployed. Send Ana the link. | Transcribe and speak working in a test script. Pick the voice. | `story.json` committed (narration and branches only). One test background on fal. |
+| 2, to 17:40 | Real `/turn`: fallback rule, then the agent with its tools and limits. | Voice wired into the backend. | Seven backgrounds. Agent system prompt with Anvay. |
+| 3, to 18:40 | Fix integration bugs. Measure turn delay. | Test real speech on Ana's page. | Run the tests and the full story. Record one clean run. |
+
+Ana: Figma Make frontend (all screens, mic, audio playback, mock dashboard), video, lead presenter.
+
+Checkpoints:
+- 16:40: Ana has a live link returning mock data; story committed; one clip transcribed and spoken.
+- 17:40: a full story runs by typed transcript with the agent asking, assessing and adapting.
+- 18:40: a full story runs by voice on the frontend, and one clean run is recorded.
+
+## Tests (JSON transcripts against `/turn`)
+
+| Child says | Expected |
+|---|---|
+| The target word | hit, praise names the word, next scene |
+| A near miss ("fowest") | agent accepts it as a hit |
+| A branch word | story follows that branch |
+| Neither branch word, twice | agent proposes one; "yes" accepts it |
+| Three misses on one scene | easier level, then moves on with a parent note |
+| Off-topic or personal | gentle redirect, nothing personal repeated |
+
+## After the MVP, in this order
+
+1. Live story generation: the agent writes each next scene behind the same contract, choosing a
+   background from a pre-made library, with both options generated while the current scene plays.
+   The fixed story stays as the fallback.
+2. Avatar: generate once on fal, remove the background, overlay on scenes at `avatar_position`.
+3. Real-time ElevenLabs agent that calls `/turn` with the transcript, so no button is needed.
+
+## Repo layout
+
 | Path | What goes in it | Owner |
 |---|---|---|
-| `agent/` | FastAPI app (`agent/main.py`), agent loop, `/session/start` `/turn` `/progress` | Back-end (Anvay, Ines) |
-| `tools/` | One file per tool: the function and its description | Back-end (Anvay, Ines) |
-| `prompts/` | `story_agent.md` system prompt | Back-end |
-| `data/` | `story.json` and other small data files | Kiko (story), Back-end |
-| `static/` | Generated audio, avatars, pre-made scene images (served at /static) | Back-end, Kiko (scenes) |
-| `tests/` | 5 test inputs + expected outputs, rerun after every change | Anvay, Kiko |
-| `contract/` | Example request/response JSON shared by both teams | Both, by agreement only |
-| `frontend/` | Exported Figma Make code + mock JSON | Front-end (Ana, Kiko) |
-| `notebooks/` | Experiments, not imported by the app | Anyone |
+| `agent/` | `agent/main.py` FastAPI app and endpoints, the agent call, the fallback rule, session store | Anvay |
+| `tools/` | One file per agent tool; `tools/voice.py` (transcribe, speak) | Anvay (agent tools), Ines (voice) |
+| `prompts/` | `story_agent.md` system prompt | Anvay, Kiko |
+| `data/` | `story.json` | Kiko |
+| `static/` | `audio/` generated speech, `scenes/` fal backgrounds, default avatar; served at `/static` | Ines (audio), Kiko (scenes) |
+| `contract/` | Example request/response JSON | Both teams, by agreement only |
+| `tests/` | Contract test, fallback-rule tests, transcript tests | Anvay, Kiko |
+| `frontend/` | Exported Figma Make code + mock JSON | Ana |
+| `notebooks/` | Experiments, never imported by the app | Anyone |
+
+Run locally: `uvicorn agent.main:app --reload`. Render start command: `uvicorn agent.main:app --host 0.0.0.0 --port $PORT`.
 
 ## Working rules
-- Pull before working, small commits with clear messages, never commit `.env`, `main` always runs.
-- Behind at 18:00? Cut features, protect the speaking loop.
+
+- Pull before working. Small commits with clear messages. Never commit `.env`. `main` always runs.
+- Keep it minimal. Do not add features that are not listed here.
+- If behind, cut features and protect the speaking loop.
 
 ## Rules for AI assistants
 

@@ -5,3 +5,8 @@ e2b-code-interpreter
 streamlit
 pandas
 requests
+fastapi
+uvicorn
+python-multipart
+elevenlabs
+pytest
