@@ -1,0 +1,11 @@
+{
+  "title": "Speakaboo Story App",
+  "description": "An interactive bedtime-story app for children ages 4–6 to become story heroes and practise new words, with progress insights for parents.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}
