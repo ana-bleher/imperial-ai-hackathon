@@ -34,8 +34,8 @@ def test_no_drawing_means_no_avatar():
 def test_painting_never_blocks_and_appears_on_the_next_turn(monkeypatch):
     release, calls = threading.Event(), []
 
-    def slow_paint(png):
-        calls.append(png)
+    def slow_paint(png, traits=None):
+        calls.append((png, traits))
         release.wait(5)
         return "/static/avatars/abc.png"
     monkeypatch.setattr(paint_avatar, "paint", slow_paint)
@@ -50,23 +50,24 @@ def test_painting_never_blocks_and_appears_on_the_next_turn(monkeypatch):
                 break
             threading.Event().wait(0.02)
         url = turn(sess, c=c)["scene"]["avatar_url"]
-    assert calls == [PNG]
+    assert calls == [(PNG, {"hair_colour": "red"})]  # traits only, never the drawing
     assert url.startswith("http") and url.endswith("/static/avatars/abc.png")
 
 
 def test_cached_avatar_is_in_the_start_response(monkeypatch):
     paint_avatar.AVATAR_DIR.mkdir(parents=True, exist_ok=True)
-    (paint_avatar.AVATAR_DIR / f"{paint_avatar.cache_key(PNG)}.png").write_bytes(PNG)
-    monkeypatch.setattr(paint_avatar, "paint", lambda png: (_ for _ in ()).throw(AssertionError("not cached")))
+    key = paint_avatar.cache_key(PNG, {"hair_colour": "red"})
+    (paint_avatar.AVATAR_DIR / f"{key}.png").write_bytes(PNG)
+    monkeypatch.setattr(paint_avatar, "paint", lambda *a: (_ for _ in ()).throw(AssertionError("not cached")))
     sess = start()
-    expected = f"/static/avatars/{paint_avatar.cache_key(PNG)}.png"
+    expected = f"/static/avatars/{key}.png"
     assert sess["avatar_url"].endswith(expected)
     assert sess["scene"]["avatar_url"].endswith(expected)
 
 
 def test_data_url_prefix_is_accepted(monkeypatch):
     seen = []
-    monkeypatch.setattr(paint_avatar, "paint", lambda png: seen.append(png) or None)
+    monkeypatch.setattr(paint_avatar, "paint", lambda png, traits=None: seen.append(png) or None)
     with TestClient(app) as c:
         start(c, image_png=f"data:image/png;base64,{B64}")
         for _ in range(100):
@@ -78,7 +79,7 @@ def test_data_url_prefix_is_accepted(monkeypatch):
 
 def test_failed_painting_or_bad_input_keeps_avatar_null(monkeypatch):
     seen = []
-    monkeypatch.setattr(paint_avatar, "paint", lambda png: seen.append(png) or None)  # e.g. no FAL_KEY
+    monkeypatch.setattr(paint_avatar, "paint", lambda png, traits=None: seen.append(png) or None)  # e.g. no FAL_KEY
     with TestClient(app) as c:
         sess = start(c)
         for _ in range(100):
@@ -102,3 +103,27 @@ def test_drawing_is_not_stored(caplog):
     assert B64 not in stored and "image_png" not in stored
     assert B64 not in caplog.text
     assert main.CHILDREN[sess["child_id"]]["avatar"] == {"hair_colour": "red", "pet": "fox"}
+
+
+def test_paint_avatar_0_skips_painting(monkeypatch):
+    monkeypatch.setenv("PAINT_AVATAR", "0")
+    monkeypatch.setattr(paint_avatar, "paint", lambda *a: (_ for _ in ()).throw(AssertionError("painted")))
+    key = paint_avatar.cache_key(PNG, {"hair_colour": "red"})  # even a cached avatar is not used
+    paint_avatar.AVATAR_DIR.mkdir(parents=True, exist_ok=True)
+    (paint_avatar.AVATAR_DIR / f"{key}.png").write_bytes(PNG)
+    with TestClient(app) as c:
+        sess = start(c)
+        assert sess["avatar_url"] is None and sess["scene"]["avatar_url"] is None
+        assert turn(sess, c=c)["scene"]["avatar_url"] is None
+
+
+def test_all_traits_are_passed_to_paint(monkeypatch):
+    seen = []
+    monkeypatch.setattr(paint_avatar, "paint", lambda png, traits=None: seen.append(traits) or None)
+    with TestClient(app) as c:
+        start(c, skin_tone="dark", hair_style="braids", outfit="pyjamas")
+        for _ in range(100):
+            if seen:
+                break
+            threading.Event().wait(0.02)
+    assert seen == [{"skin_tone": "dark", "hair_style": "braids", "hair_colour": "red", "outfit": "pyjamas"}]

@@ -5,7 +5,9 @@ entry point returns a /static path; paint_avatar() supports manual file tests.
 """
 
 import hashlib
+import json
 import os
+import re
 from pathlib import Path
 from uuid import uuid4
 
@@ -28,6 +30,47 @@ PROMPT = (
     "white background. No scenery, props, text, ground shadow, or extra "
     "characters. Illustrated only, never photorealistic."
 )
+TRAIT_KEYS = ("skin_tone", "hair_style", "hair_colour", "outfit")
+
+
+def clean_traits(traits: dict | None) -> dict:
+    """Only the known traits, as short plain words (they go into a prompt)."""
+    cleaned = {}
+    for key in TRAIT_KEYS:
+        value = (traits or {}).get(key)
+        if isinstance(value, str):
+            value = re.sub(r"[^A-Za-z -]+", " ", value.replace("_", " "))
+            value = " ".join(value.split())[:30].strip()
+            if value:
+                cleaned[key] = value
+    return cleaned
+
+
+def traits_sentence(traits: dict | None) -> str:
+    """e.g. 'The child has medium skin, red curly hair, and wears a raincoat. Keep exactly this
+    skin tone - do not lighten or darken it.' Missing traits are skipped; none gives ''."""
+    t = clean_traits(traits)
+    has = []
+    if "skin_tone" in t:
+        has.append(f"{t['skin_tone']} skin")
+    hair = " ".join(t[k] for k in ("hair_colour", "hair_style") if k in t)
+    if hair:
+        has.append(f"{hair} hair")
+    parts = []
+    if has and "outfit" in t:
+        parts.append(f"The child has {', '.join(has)}, and wears a {t['outfit']}.")
+    elif has:
+        parts.append(f"The child has {' and '.join(has)}.")
+    elif "outfit" in t:
+        parts.append(f"The child wears a {t['outfit']}.")
+    if "skin_tone" in t:
+        parts.append("Keep exactly this skin tone \u2014 do not lighten or darken it.")
+    return " ".join(parts)
+
+
+def build_prompt(traits: dict | None = None) -> str:
+    sentence = traits_sentence(traits)
+    return f"{sentence} {PROMPT}" if sentence else PROMPT
 
 
 def _download_png(url: str, destination: Path) -> None:
@@ -71,14 +114,14 @@ def paint_avatar(input_path: str | Path, output_path: str | Path | None = None) 
     return destination
 
 
-def _paint_source(image_url: str, destination: Path) -> None:
+def _paint_source(image_url: str, destination: Path, prompt: str = PROMPT) -> None:
     painted_path = destination.with_name(f"{destination.stem}.painted.png")
     print(f"Painting with {EDIT_MODEL}...", flush=True)
     painted = fal_client.subscribe(
         EDIT_MODEL,
         arguments={
             "image_url": image_url,
-            "prompt": PROMPT,
+            "prompt": prompt,
             "num_images": 1,
             "output_format": "png",
             "seed": 42,
@@ -97,18 +140,23 @@ def _paint_source(image_url: str, destination: Path) -> None:
     _download_png(cutout["image"]["url"], destination)
 
 
-def cache_key(png_bytes: bytes) -> str:
-    """Preserve the existing cache names so unchanged avatars cost nothing."""
-    return hashlib.sha1(png_bytes).hexdigest()[:16]
+def cache_key(png_bytes: bytes, traits: dict | None = None) -> str:
+    """Without traits, the existing cache names are kept so unchanged avatars cost nothing.
+    With traits, they are part of the key, so the same drawing with new traits repaints."""
+    digest = hashlib.sha1(png_bytes)
+    cleaned = clean_traits(traits)
+    if cleaned:
+        digest.update(json.dumps(cleaned, sort_keys=True).encode())
+    return digest.hexdigest()[:16]
 
 
-def paint(png_bytes: bytes) -> str | None:
+def paint(png_bytes: bytes, traits: dict | None = None) -> str | None:
     """Return a cached /static avatar path, or None on failure.
 
     Blocking: call from a worker thread when used by an async endpoint.
     """
     try:
-        destination = AVATAR_DIR / f"{cache_key(png_bytes)}.png"
+        destination = AVATAR_DIR / f"{cache_key(png_bytes, traits)}.png"
         if destination.exists():
             return f"/static/avatars/{destination.name}"
         load_dotenv(ROOT / ".env")
@@ -117,7 +165,7 @@ def paint(png_bytes: bytes) -> str | None:
         if not png_bytes.startswith(b"\x89PNG\r\n\x1a\n"):
             return None
         image_url = fal_client.upload(png_bytes, "image/png")
-        _paint_source(image_url, destination)
+        _paint_source(image_url, destination, build_prompt(traits))
         return f"/static/avatars/{destination.name}"
     except Exception as error:  # Avatar generation must never interrupt the story.
         message = str(error)

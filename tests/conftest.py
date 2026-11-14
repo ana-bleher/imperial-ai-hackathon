@@ -31,6 +31,6 @@ def no_real_voice(monkeypatch):
 def no_real_fal(monkeypatch, tmp_path):
     """Avatar painting never calls fal in tests: paint() fails, and the cache is an empty temp folder."""
     from tools import paint_avatar
-    monkeypatch.setattr(paint_avatar, "paint", lambda png_bytes: None)
+    monkeypatch.setattr(paint_avatar, "paint", lambda png_bytes, traits=None: None)
     monkeypatch.setattr(paint_avatar, "AVATAR_DIR", tmp_path / "avatars")
     monkeypatch.setattr(paint_avatar, "fal_client", None)  # any real fal call would crash loudly
