@@ -1,7 +1,10 @@
 """"Your own adventure": a 4-page story written page by page by Claude, from a background catalogue.
 
-Pages 1-3 end with a choice between two places or things (a branch_choice: both answers valid).
-Page 4 is a calm goodnight ending with the authored challenge "Can you whisper 'goodnight'?".
+Page 1 is always the pre-written opening (no generation, so /session/start is fast).
+Pages 1-3 end with a choice between two places or things (a branch_choice: both answers valid);
+page 3's choices are the last, calm places before bedtime.
+Page 4 briefly visits the place chosen on page 3, then the child and pet go home to bed in the
+ending background, ending with "Goodnight." Authored challenge: "Can you whisper 'goodnight'?".
 Pages have the same scene shape as data/story.json scenes, plus: page, parent, background_id,
 image_path. They live on the session (sess["scenes"]); the Pip story's SCENES is never touched.
 
@@ -128,6 +131,8 @@ def validate_page(raw, page: int) -> dict:
     if ending:
         if choices:
             raise ValueError("page 4 has no choices")
+        if not {"home", "bed"} & set(re.findall(r"[a-z]+", narration.lower())):
+            raise ValueError("page 4 must mention home or bed")
         if not narration.endswith("Goodnight."):
             narration = f"{narration} Goodnight."
         return {"narration": narration, "background_id": bg["id"], "choices": []}
@@ -194,15 +199,16 @@ FALLBACK_MIDDLE = {
         "choices": [{"word": "cottage", "label": "Rest in the cosy cottage"},
                     {"word": "home", "label": "Go home to bed"}]},
 }
-FALLBACK_ENDINGS = {
-    "cozy-cottage": "{CHILD_NAME} and {PET} found a little cottage with a warm, glowing window. Inside, "
-                    "a soft blanket waited by the fire. They snuggled up close and listened to the "
-                    "quiet evening. Their eyes grew heavy and sleepy. What a lovely adventure it had been. "
+FALLBACK_ENDINGS = {  # {visit}: one sentence at the place chosen on page 3 (or nothing)
+    "cozy-cottage": "{visit}Then {CHILD_NAME} and {PET} walked home to their little cottage with the warm, "
+                    "glowing window. Inside, a soft bed waited by the fire. They snuggled up under the "
+                    "blanket and their eyes grew heavy and sleepy. What a lovely adventure it had been. "
                     "Goodnight.",
-    "bedtime-bedroom": "At last, {CHILD_NAME} and {PET} came home to a cosy bedroom. The stars twinkled "
+    "bedtime-bedroom": "{visit}Then {CHILD_NAME} and {PET} went home to a cosy bedroom. The stars twinkled "
                        "softly through the window and the moon smiled down. {CHILD_NAME} climbed into "
                        "bed and pulled up the warm blanket. What a lovely adventure it had been. Goodnight.",
 }
+HOME_WORDS = {"home", "bed", "bedroom", "house", "cottage"}  # a choice that already means going home
 
 
 def matching_background(word: str | None, page: int) -> str | None:
@@ -224,7 +230,9 @@ def fallback_page(page: int, choice: dict | None = None) -> dict:
     word = (choice or {}).get("word")
     if page == PAGES:
         bg = "cozy-cottage" if word in ("cottage", "house", "cabin") else "bedtime-bedroom"
-        return {"narration": FALLBACK_ENDINGS[bg], "background_id": bg, "choices": []}
+        visit = "" if not word or word in HOME_WORDS else \
+            f"{{CHILD_NAME}} and {{PET}} had one last quiet look at the {word}. "
+        return {"narration": FALLBACK_ENDINGS[bg].replace("{visit}", visit), "background_id": bg, "choices": []}
     spec = FALLBACK_MIDDLE[page]
     bg = matching_background(word, page) or spec["background_id"]
     place = BACKGROUNDS[bg]["title"].lower()
@@ -241,8 +249,13 @@ def catalogue_for_prompt() -> list[dict]:
 
 
 def page_message(page: int, story_so_far: list[dict], pet: str, choice: dict | None) -> str:
+    notes = {
+        PAGES - 1: " (its two choices are the LAST place before bedtime: calm, evening-friendly places)",
+        PAGES: " (the ending: briefly visit the chosen place in one or two sentences, then go home and get "
+               "cosy in bed, matching the ending background; no choices; end with 'Goodnight.')",
+    }
     lines = [
-        f"PAGE: {page} of {PAGES}" + (" (the ending: no choices, an ending background)" if page == PAGES else ""),
+        f"PAGE: {page} of {PAGES}" + notes.get(page, ""),
         f"THE CHILD'S PET: {pet} (write {{PET}})",
         f"BACKGROUND CATALOGUE: {json.dumps(catalogue_for_prompt())}",
     ]
@@ -263,7 +276,10 @@ def read_write_page(response) -> dict:
 
 
 async def generate_page(page: int, story_so_far: list[dict], pet: str, choice: dict | None) -> tuple[dict, str | None]:
-    """(validated page data, None), or (fallback page data, why) when slow, failing or invalid."""
+    """(validated page data, None), or (fallback page data, why) when slow, failing or invalid.
+    Page 1 is always the pre-written opening: no model call."""
+    if page == 1:
+        return dict(FALLBACK_OPENING), None
     try:
         response = await asyncio.wait_for(call_model(page_message(page, story_so_far, pet, choice)),
                                           GENERATE_TIMEOUT)

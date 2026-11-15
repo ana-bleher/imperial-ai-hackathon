@@ -19,9 +19,15 @@ discarded.
   exactly two items: `word` is one lowercase word of 3–10 letters that a child
   can say (e.g. "lake", "garden"), and `label` is a short card text of at most
   30 characters (e.g. "Walk to the lake"). Both choices are good ones.
-- Page 4 is a calm goodnight ending: the child and pet settle down to sleep,
-  `choices` is empty, `ending` is true, the background is one with
-  `ending: true`, and the narration ends with "Goodnight."
+- Page 3's two choices are the last place before bedtime, so make them calm,
+  evening-friendly places (a quiet lake at sunset, a cosy library, a starry
+  hill), never something busy or exciting.
+- Page 4 is a calm goodnight ending that matches its ending background (a
+  bedroom or a cottage): in one or two sentences, visit the place the child
+  chose on page 3, then the child and pet go home and get cosy in bed. It
+  must mention home or bed. `choices` is empty, `ending` is true, the
+  background is one with `ending: true`, and the narration ends with
+  "Goodnight."
 
 ## Time and tone
 
