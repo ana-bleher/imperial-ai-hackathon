@@ -4469,3 +4469,18 @@ html.night .timeline-why b { color: #f2c14e; }
 @media (prefers-reduced-motion: reduce) {
   .closing-book, .closing-book-inner, .closing-moon { animation: none; }
 }
+
+/* ---------- Brand: one mark everywhere ---------- */
+.logo-mark {
+  background: transparent;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 6px 16px rgba(4, 9, 27, 0.25);
+}
+.logo-mark i { display: none; }
+.logo-mark-svg { width: 100%; height: 100%; display: block; }
+/* Pip speaks in the bubble */
+.guide-face.guide-face--pip { background: transparent; box-shadow: none; overflow: visible; }
+.guide-face.guide-face--pip:before,
+.guide-face.guide-face--pip:after { display: none; }
+.guide-face.guide-face--pip svg { width: 100%; height: 100%; display: block; }
