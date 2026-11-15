@@ -61,7 +61,13 @@ export type ProgressResponse = {
   avg_answer_length: number;
   nightly: { date: string; hits: number; attempts: number }[];
   parent_notes: string;
-  agent_log?: { scene: string; action: string; reason: string }[];
+  agent_log?: {
+    scene: string;
+    action: string;
+    reason: string;
+    question_type?: string; // which kind of question the agent chose (e.g. "count")
+    question_reason?: string; // why it chose it
+  }[];
   summary?: {
     stars_tonight: number;
     words_practised: string[];
