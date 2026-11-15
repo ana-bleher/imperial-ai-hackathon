@@ -254,7 +254,8 @@ def speaking_message(sess, scene, narration, transcript, next_narration) -> str:
         f"SCENE {scene['id']} NARRATION: {narration}",
         f"CURRENT CHALLENGE: level {ch['level']}, question_type {qt}, prompt {ch['prompt']!r}, "
         f"target_words {ch['target_words']}, accept {ch.get('accept') or ch['target_words']}",
-        f"ON RETRY, ask must step down to: {sorted(questions.STEP_DOWN[qt])}",
+        "ON RETRY: this is the story's goodnight; code repeats the same question (do not call ask)."
+        if ch.get("fixed") else f"ON RETRY, ask must step down to: {sorted(questions.STEP_DOWN[qt])}",
         f"QUESTION TYPES SO FAR (vary them; not the same twice in a row): {sess.get('question_types', [])}",
         f"CHILD STATE (get_child_state): {get_child_state(sess)}",
         f"STREAKS: {sess['hit_streak']} hits in a row, {sess['miss_streak']} misses in a row",
@@ -404,7 +405,7 @@ def apply_speaking(sess, scene, narration, transcript, calls, next_narration, na
     if retry and kind == "off_topic":
         check_acknowledge_only(say)
     new_challenge = next_challenge = None
-    if retry and kind == "off_topic":  # steer back to the same question
+    if retry and (kind == "off_topic" or challenge.get("fixed")):  # the same question (ending: goodnight)
         new_challenge = challenge
     elif retry:  # one step easier: the agent's, or the fallback's step down
         if "ask" in calls:

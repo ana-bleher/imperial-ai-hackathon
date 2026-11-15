@@ -40,3 +40,4 @@ def no_real_fal(monkeypatch, tmp_path):
     monkeypatch.setattr(paint_avatar, "paint", lambda png_bytes, traits=None: None)
     monkeypatch.setattr(paint_avatar, "AVATAR_DIR", tmp_path / "avatars")
     monkeypatch.setattr(paint_avatar, "fal_client", None)  # any real fal call would crash loudly
+    monkeypatch.setattr(paint_avatar, "has_fal_key", lambda: True)  # never depends on a real key

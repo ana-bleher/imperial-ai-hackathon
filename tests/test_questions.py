@@ -349,7 +349,9 @@ def test_agent_not_asking_falls_back_to_authored(monkeypatch):
     assert r["scene"]["challenge"]["prompt"] == "How many times did the bells ring?"
 
 
-def test_agent_question_replaces_authored_on_speaking_advance(monkeypatch):
+def test_agent_question_is_ignored_on_advance_to_an_ending(monkeypatch):
+    """s4a -> s5a: the ending keeps its authored goodnight (the agent is not asked for it, and an
+    ask anyway is ignored). Agent questions on advance are covered by the branch -> s4a tests."""
     sess = start()
     to_branch(sess)
     turn(sess, "bridge")  # offline: authored count question on s4a
@@ -360,8 +362,8 @@ def test_agent_question_replaces_authored_on_speaking_advance(monkeypatch):
                           ("set_difficulty", {"level": 2}),
                           ("next_step", {"action": "advance", "say": "Yes, three bells, well done!"}),
                           ("ask", goodnight_scene))
-    assert "NEXT SCENE NARRATION" in model.message
-    assert r["scene"]["id"] == "s5a" and r["scene"]["challenge"]["prompt"] == "Can you say 'first stars'?"
+    assert "NEXT SCENE NARRATION" not in model.message
+    assert r["scene"]["id"] == "s5a" and r["scene"]["challenge"]["prompt"] == "Can you whisper 'goodnight' to Pip?"
 
 
 def test_reason_quoting_the_child_is_replaced(monkeypatch):

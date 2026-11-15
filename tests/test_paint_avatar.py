@@ -64,6 +64,10 @@ def test_cache_key_includes_traits(pa):
     assert pa.cache_key(PNG, TRAITS) != plain
     assert pa.cache_key(PNG, TRAITS) != pa.cache_key(PNG, {**TRAITS, "skin_tone": "dark"})
     assert pa.cache_key(PNG, TRAITS) == pa.cache_key(PNG, dict(reversed(TRAITS.items())))
+    # traits, not bytes: a slightly different render of the same drawing hits the same cache
+    assert pa.cache_key(PNG, TRAITS) == pa.cache_key(PNG + b"other render", TRAITS)
+    assert pa.cache_key(PNG, TRAITS) == pa.cache_key(PNG, {k: v.upper() for k, v in TRAITS.items()})
+    assert pa.cache_key(PNG) != pa.cache_key(PNG + b"other render")  # no traits: the bytes
 
 
 def test_paint_sends_traits_prompt_and_repaints_on_new_traits(pa):
