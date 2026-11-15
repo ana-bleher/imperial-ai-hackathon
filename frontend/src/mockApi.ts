@@ -44,7 +44,7 @@ export type StartSessionResponse = {
 export type SendTurnResponse = {
   stars?: number; // running total for tonight: 1 per word said, +1 on a first try
   transcript: string;
-  result: "hit" | "miss";
+  result: "hit" | "miss" | "skipped" | "silence";
   feedback: string;
   feedback_audio_url: string | null;
   retry: boolean;
@@ -672,6 +672,7 @@ export async function sendTurn(
   session_id: string,
   transcript: string,
   audioFile?: Blob,
+  options: { skip?: boolean } = {},
 ): Promise<SendTurnResponse> {
   const fallbackSessionId = fallbackSessions.get(session_id) ?? session_id;
   if (mockOnlySessions.has(session_id)) {
@@ -698,7 +699,8 @@ export async function sendTurn(
     init = {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ session_id, transcript: backendTranscript }),
+      // skip: "Turn the page" moves on without scoring (no stars, no hit/miss in the log)
+      body: JSON.stringify({ session_id, transcript: backendTranscript, ...(options.skip ? { skip: true } : {}) }),
     };
   }
 

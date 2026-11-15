@@ -127,13 +127,37 @@ function Icon({
   );
 }
 
-function Logo({ compact = false }: { compact?: boolean }) {
+// Brand mark: a crescent moon cradling Pip the firefly (bedtime + the story's guide).
+function LogoMark() {
+  return (
+    <svg viewBox="0 0 64 64" aria-hidden="true" className="logo-mark-svg">
+      <defs>
+        <mask id="sb-moon">
+          <rect width="64" height="64" fill="#fff" />
+          <circle cx="39" cy="26" r="19" fill="#000" />
+        </mask>
+      </defs>
+      <rect width="64" height="64" rx="16" fill="#1b2340" />
+      <circle cx="30" cy="33" r="22" fill="#f2c14e" mask="url(#sb-moon)" />
+      <circle cx="41" cy="29" r="9.5" fill="none" stroke="#f2c14e" strokeWidth="1.5" opacity=".45" />
+      <ellipse cx="35" cy="19.5" rx="5.2" ry="2.6" fill="#5fb3a8" transform="rotate(35 35 19.5)" />
+      <ellipse cx="47" cy="19.5" rx="5.2" ry="2.6" fill="#5fb3a8" transform="rotate(-35 47 19.5)" />
+      <circle cx="41" cy="29" r="6" fill="#fff6e5" />
+      <circle cx="38.8" cy="28.2" r="1" fill="#1b2340" />
+      <circle cx="43.2" cy="28.2" r="1" fill="#1b2340" />
+      <path d="M39 31q2 1.6 4 0" fill="none" stroke="#1b2340" strokeWidth="1.1" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function Logo({ compact = false, markless = false }: { compact?: boolean; markless?: boolean }) {
   return (
     <div className={`logo ${compact ? "logo--compact" : ""}`}>
-      <span className="logo-mark">
-        <Icon name="moon" size={compact ? 25 : 32} />
-        <i />
-      </span>
+      {!markless && (
+        <span className="logo-mark">
+          <LogoMark />
+        </span>
+      )}
       <span>Speakaboo</span>
     </div>
   );
@@ -644,7 +668,7 @@ function Login({ onLogin, onDemo }: { onLogin: () => void; onDemo: () => void })
           <span className="cloud cloud-one" />
           <span className="cloud cloud-two" />
         </div>
-        <Logo />
+        <Logo markless />
         <p>Big stories for little voices.</p>
         <small>Speaking practice through bedtime stories, for ages 4–6.</small>
       </section>
@@ -1797,7 +1821,7 @@ function StoryScene({
       return;
     }
     setRetrying(false);
-    setFeedback(response.result === "hit" ? "success" : "miss");
+    setFeedback(response.result === "hit" ? "success" : response.result === "skipped" ? "idle" : "miss");
     setFeedbackCopy(response.feedback);
     setPhase("feedback");
 
@@ -2166,7 +2190,9 @@ function StoryScene({
     setSending(true);
     setPhase("thinking");
     try {
-      const response = await sendTurn(currentSession, current.challenge.target_words.join(" "));
+      const response = await sendTurn(currentSession, current.challenge.target_words.join(" "), undefined, {
+        skip: true,
+      });
       setOfflineDemo(isOfflineDemo());
       processChallengeResponse(response);
     } finally {
@@ -2515,10 +2541,8 @@ function StoryScene({
         <>
         {phase !== "narrating" && (
           <div className={`guide-bubble ${feedback}`}>
-            <span className="guide-face">
-              <i />
-              <i />
-              <b />
+            <span className="guide-face guide-face--pip" aria-hidden="true">
+              <Pip />
             </span>
             <p>
               {feedback === "miss"
@@ -3219,10 +3243,8 @@ function Dashboard({
 
           <article className="stat-card guide-noticed-card">
             <div className="guide-note-head">
-              <span className="guide-face">
-                <i />
-                <i />
-                <b />
+              <span className="guide-face guide-face--pip" aria-hidden="true">
+                <Pip />
               </span>
               <div>
                 <span>What the guide noticed tonight</span>
