@@ -12,6 +12,7 @@ Agent too slow (> TIMEOUT_S), API error, refusal or invalid output -> fallback. 
 """
 import asyncio
 import logging
+import re
 import time
 from pathlib import Path
 
@@ -38,6 +39,17 @@ COMMON_WORDS = {
     "amazing", "wow", "fun", "story", "next", "happens", "see", "copy", "turn", "hello", "thank",
     "thanks", "please", "okay", "sound", "starts", "word", "words", "choice", "adventure", "super",
 }
+
+# Phrases the agent may not say (CLAUDE.md voice rules): the app cannot speak with the child,
+# and "trying" is not a noun.
+BANNED_PHRASES = [
+    ("together", re.compile(r"\btogether\b", re.I)),
+    ("with me", re.compile(r"\bwith me\b", re.I)),
+    ("<adjective> trying", re.compile(
+        r"\b(?:great|good|nice|lovely|super|wonderful|brilliant|amazing|fantastic|awesome|excellent|"
+        r"terrific|brave|clever|fab|fabulous|such|big|best)\s+trying\b", re.I)),
+    ("little word", re.compile(r"\blittle\s+words?\b", re.I)),
+]
 
 _client = None
 
@@ -113,6 +125,20 @@ def leaks_child_words(text: str, transcript: str, vocab: set[str]) -> bool:
     allowed = vocab | COMMON_WORDS | fallback.STOPWORDS | fallback.YES | fallback.NO
     said = {w for w in fallback.words(transcript) if len(w) >= 3 and w not in allowed}
     return bool(said & set(fallback.words(text)))
+
+
+def banned_phrase(text: str) -> str | None:
+    """The first banned phrase in `text`, or None."""
+    for name, pattern in BANNED_PHRASES:
+        if pattern.search(text or ""):
+            return name
+    return None
+
+
+def check_wording(text: str, what: str) -> None:
+    phrase = banned_phrase(text)
+    if phrase:
+        raise InvalidAgentOutput(f"{what} uses banned phrase '{phrase}'")
 
 
 def content_words(targets: list[str]) -> list[str]:
@@ -252,6 +278,7 @@ def apply_speaking(sess, scene, narration, transcript, calls, next_narration, na
         raise InvalidAgentOutput("praise does not name the word")
     if leaks_child_words(say, transcript, vocab):
         raise InvalidAgentOutput("line repeats the child's own words")
+    check_wording(say, "line")
 
     retry = action == "retry_with_hint"
     new_challenge = next_challenge = None
@@ -304,6 +331,7 @@ def apply_authored(scene, transcript, d, calls, vocab) -> dict:
         raise InvalidAgentOutput("praise does not name the chosen word")
     if leaks_child_words(say, transcript, vocab):
         raise InvalidAgentOutput("line repeats the child's own words")
+    check_wording(say, "line")
     tail = authored_tail(scene, d)
     d["feedback"] = f"{say} {tail}".strip()
     note = calls.get("notify_parent")
@@ -338,9 +366,11 @@ async def _ask_agent(message: str) -> tuple[dict | None, dict]:
 
 
 def safe_ask(ch: dict | None, transcript: str, vocab: set[str]) -> dict | None:
-    """The agent's question is spoken to the child: same leak check as its `say` line."""
+    """The agent's question is spoken to the child: same leak and wording checks as its `say` line."""
     if ch and leaks_child_words(ch["prompt"], transcript, vocab):
         raise InvalidAgentOutput("question repeats the child's own words")
+    if ch:
+        check_wording(ch["prompt"], "question")
     return ch
 
 

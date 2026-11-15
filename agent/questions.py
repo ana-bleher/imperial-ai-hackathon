@@ -13,7 +13,7 @@ Ladder (types allowed at each level; a lower level's types are always allowed):
   1: say, choice   2: + recall, count, colour   3: + open
 On a miss with tries left the retry is one step easier (STEP_DOWN):
   open -> recall or choice;  recall/count/colour -> choice (right answer + one wrong one);
-  choice -> say it ("Say it with me: 'three'");  say -> say (same, or easier with a hint).
+  choice -> say it ("Listen: 'three'. Now you try!");  say -> say (same, or easier with a hint).
 
 The agent's `ask` tool schema and parser live here too (they extend tools/ask.py with
 question_type and accept).
@@ -192,11 +192,11 @@ def choice_from(ch: dict, narration: str, level: int) -> dict:
 
 
 def say_from(ch: dict, level: int) -> dict:
-    """Choice -> say it together: "Say it with me: 'three'"."""
+    """Choice -> the narrator models the answer, then the child says it: "Listen: 'three'. Now you try!"."""
     right = answer_word(ch)
-    return normalise({"level": level, "prompt": f"Say it with me: '{right}'", "target_words": [right],
+    return normalise({"level": level, "prompt": f"Listen: '{right}'. Now you try!", "target_words": [right],
                       "question_type": SAY, "accept": [right],
-                      "reason": "Fallback step down from a choice to saying the answer together"})
+                      "reason": "Fallback step down from a choice to modelling the answer"})
 
 
 def step_down(ch: dict, narration: str, key: str, level: int) -> dict:
@@ -210,7 +210,7 @@ def step_down(ch: dict, narration: str, key: str, level: int) -> dict:
                           "reason": f"Fallback: easier say challenge at level {level} with a hint"})
     if qt == CHOICE:
         return say_from(ch, level)
-    if qt == OPEN:  # no single answer to build a choice from: say a story word together
+    if qt == OPEN:  # no single answer to build a choice from: model a story word to say
         return normalise({**fb.make_challenge(narration, key, max(1, min(level, 2)), hint=True),
                           "level": level, "question_type": SAY,
                           "reason": "Fallback step down from an open question to saying a story word"})
@@ -305,7 +305,7 @@ def validate(ch: dict, narration: str, level: int, name_words: set[str], retry_f
     if qt == SAY:
         lo, hi = SAY_WORDS[level]
         if retry_from is not None:
-            lo = 1  # a say-it-together hint may be a single word
+            lo = 1  # a modelled say-it hint may be a single word
         if not lo <= len(targets) <= hi:
             raise ValueError(f"level {level} say needs {lo}-{hi} target words, got {len(targets)}")
         missing = [w for w in targets if not _supported(w, narr)]

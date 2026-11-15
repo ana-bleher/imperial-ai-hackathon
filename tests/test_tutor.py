@@ -162,7 +162,7 @@ def test_agent_miss_retries_with_its_own_challenge(monkeypatch):
 
 
 def test_attempt_limit_moves_on_with_template_parent_note(monkeypatch):
-    use(monkeypatch, *miss("move_on", "Great trying, it goes 'forest'!"))
+    use(monkeypatch, *miss("move_on", "Good try, it's 'forest'!"))
     s = session()
     s["tries"] = 2
     d, meta = decide(s, "banana")
@@ -171,7 +171,7 @@ def test_attempt_limit_moves_on_with_template_parent_note(monkeypatch):
 
 
 def test_agent_parent_note_is_kept(monkeypatch):
-    use(monkeypatch, *miss("retry_with_hint", "Let's listen to the story together.", 1,
+    use(monkeypatch, *miss("retry_with_hint", "Let's listen to the story again.", 1,
                            ("notify_parent", {"note": "Seemed upset in the forest scene - check in"})))
     d, _ = decide(session(), "i am sad")
     assert d["parent_note"] == "Seemed upset in the forest scene - check in"
@@ -242,7 +242,7 @@ def test_line_repeating_personal_info_is_rejected(monkeypatch):
 
 
 def test_parent_note_with_child_words_is_dropped(monkeypatch):
-    use(monkeypatch, *miss("retry_with_hint", "Let's find the owl together!", 1,
+    use(monkeypatch, *miss("retry_with_hint", "Let's find the owl!", 1,
                            ("notify_parent", {"note": "Mentioned zorblax street 12"})))
     d, meta = decide(session(), "i live on zorblax street")
     assert meta["source"] == "agent" and d["parent_note"] is None
@@ -297,11 +297,11 @@ def test_branch_unrecognised_repeats_options_after_agent_line(monkeypatch):
 
 
 def test_first_silence_is_authored_not_a_miss(monkeypatch):
-    use(monkeypatch, ("next_step", {"action": "retry_with_hint", "say": "Shall we try together?"}))
+    use(monkeypatch, ("next_step", {"action": "retry_with_hint", "say": "Take your time!"}))
     s = session()
     d, _ = decide(s, "")
     assert d["result"] == "silence" and s["tries"] == 0
-    assert d["feedback"].startswith("Shall we try together? Can you say")
+    assert d["feedback"].startswith("Take your time! Can you say")
 
 
 # ---------- tools ----------

@@ -97,7 +97,7 @@ def test_count_wrong_steps_down_to_choice_then_say_over_http():
     ch = r["scene"]["challenge"]
     assert ch["prompt"] == "Was it two or three?" and ch["target_words"] == ["two", "three"]
     r = turn(sess, "two")  # the wrong option
-    assert r["retry"] and r["scene"]["challenge"]["prompt"] == "Say it with me: 'three'"
+    assert r["retry"] and r["scene"]["challenge"]["prompt"] == "Listen: 'three'. Now you try!"
     r = turn(sess, "three")
     assert r["result"] == "hit" and r["scene"]["id"] == "s5a"
 
@@ -112,7 +112,7 @@ def test_attempts_used_up_models_the_answer():
     s = state_with(COUNT)
     s["tries"] = 2  # last attempt still on the count question itself
     d = fb.turn(s, SCENE, NARRATION, "seven")
-    assert d["action"] == "move_on" and "It was three" in d["feedback"]
+    assert d["action"] == "move_on" and "It's 'three'" in d["feedback"]
 
 
 def test_agent_slow_uses_authored_question_rule(monkeypatch):
@@ -144,7 +144,7 @@ def test_choice_steps_down_to_say_it():
     s = state_with(ch, level=1)
     d = fb.turn(s, SCENE, NARRATION, "ribbon")
     assert d["challenge"]["question_type"] == "say"
-    assert d["challenge"]["prompt"] == "Say it with me: 'bells'"
+    assert d["challenge"]["prompt"] == "Listen: 'bells'. Now you try!"
     assert fb.turn(s, SCENE, NARRATION, "bells")["result"] == "hit"
 
 

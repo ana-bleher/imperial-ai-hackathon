@@ -132,7 +132,7 @@ def test_three_misses_move_on_with_parent_note():
 def test_first_silence_is_not_a_miss():
     s = fresh()
     d = say(s, "")
-    assert d["result"] == "silence" and d["retry"] and "together" in d["feedback"]
+    assert d["result"] == "silence" and d["retry"] and d["feedback"].startswith("Take your time!")
     assert s["tries"] == 0 and s["miss_streak"] == 0
     d = say(s, "")
     assert d["result"] == "miss" and s["tries"] == 1
