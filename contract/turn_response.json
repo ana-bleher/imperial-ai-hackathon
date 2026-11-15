@@ -16,10 +16,11 @@
     "challenge": {"level": 1, "prompt": "Which one warms the flowers during the day: sun or moon?", "target_words": ["sun", "moon"]},
     "challenge_audio_url": null,
     "choices": [
-      {"word": "sun", "label": "Sun", "icon": "sun"},
-      {"word": "moon", "label": "Moon", "icon": "moon"}
+      {"word": "sun", "label": "Sun", "icon": "sun", "image_url": null},
+      {"word": "moon", "label": "Moon", "icon": "moon", "image_url": null}
     ],
-    "avatar_url": null
+    "avatar_url": null,
+    "phase": null
   },
   "story_complete": false
 }
