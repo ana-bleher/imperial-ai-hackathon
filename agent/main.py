@@ -166,15 +166,31 @@ PRONOUNS = {  # {THEY} / {THEM} / {THEIR}
 }
 
 
+# Words before {PET} that already say whose pet it is: no extra "her" / "the".
+DETERMINERS = {"{their}", "his", "her", "their", "the", "a", "an", "my", "your", "our", "this", "that"}
+
+
 def narration_for(sess: dict, scene: dict) -> str:
-    """Fill the story's placeholders: {CHILD_NAME}, {PET}, {THEY}, {THEM}, {THEIR}."""
+    """Fill the story's placeholders: {CHILD_NAME}, {PET}, {THEY}, {THEM}, {THEIR}.
+    {PET} reads naturally: "her fox" the first time in a narration, "the fox" after that.
+    After a word that already determines it ("{THEIR} {PET}", "the {PET}") it is just "fox"."""
     child = sess["child"]
     they, them, their = PRONOUNS.get(str(child.get("pronouns", "")).lower(), PRONOUNS["they"])
     pet = pet_of(sess)
-    values = {"CHILD_NAME": child["child_name"], "PET": pet, "THEY": they, "THEM": them, "THEIR": their}
+    values = {"CHILD_NAME": child["child_name"], "THEY": they, "THEM": them, "THEIR": their}
+    pets_seen = 0
 
     def fill(m: re.Match) -> str:
-        value = values.get(m.group(1), m.group(0))
+        nonlocal pets_seen
+        if m.group(1) == "PET":
+            before = scene["narration"][:m.start()].split()
+            if before and before[-1].lower() in DETERMINERS:
+                value = pet
+            else:
+                value = f"{their} {pet}" if pets_seen == 0 else f"the {pet}"
+            pets_seen += 1
+        else:
+            value = values.get(m.group(1), m.group(0))
         before = scene["narration"][:m.start()].rstrip()
         if not before or before[-1] in ".!?'\"":  # start of a sentence
             value = value[:1].upper() + value[1:]

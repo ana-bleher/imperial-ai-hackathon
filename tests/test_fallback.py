@@ -296,6 +296,20 @@ def test_pronoun_placeholders():
     assert narration_for(sess, scene) == "Sam waved. They smiled at their cat."
 
 
+def test_pet_reads_naturally():
+    from agent.main import SCENES, narration_for
+
+    def fill(text, pronouns="she"):
+        sess = {"child": {"child_name": "Mia", "pronouns": pronouns, "avatar": {"pet": "fox"}}}
+        return narration_for(sess, {"narration": text})
+    assert fill("{CHILD_NAME} and {PET} walked. {PET} yawned. Mia hugged {PET}.") == \
+        "Mia and her fox walked. The fox yawned. Mia hugged the fox."
+    assert fill("{CHILD_NAME} and {PET} smiled.", "he") == "Mia and his fox smiled."
+    assert fill("{CHILD_NAME} and {PET} smiled.", "they") == "Mia and their fox smiled."
+    assert fill("{CHILD_NAME} patted the {PET}. Then {PET} slept.") == "Mia patted the fox. Then the fox slept."
+    assert fill(SCENES["s1"]["narration"]).startswith("One golden afternoon, Mia and her fox met Pip")
+
+
 def test_full_story_runs_on_typed_transcripts():
     sess = start()
     scene, seen = sess["scene"], []
