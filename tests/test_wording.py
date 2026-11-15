@@ -195,7 +195,8 @@ def test_fallback_branch_lines_follow_the_rule():
     for said in ("dinosaur", "dinosaur", "yes"):
         lines.append(fb.turn(s, BRANCH, BRANCH["narration"], said)["feedback"])
     assert lines[0] == "The bridge it is, Mia! Off we go."
-    assert lines[3] == "The boat it is, Mia! Off we go." and lines[-1] == "The bridge it is, Mia! Off we go."
+    assert lines[3] == "Let's try the boat!"  # declined the proposal: code picked, not the child
+    assert lines[-1] == "The bridge it is, Mia! Off we go."  # said yes to the proposal
     for line in lines:
         assert tutor.choice_praise(line) is None and tutor.banned_phrase(line) is None, line
     nameless = {**fb.new_session_state()}

@@ -257,7 +257,7 @@ def test_question_wrong_answer_agent_line_plus_authored_hint(monkeypatch):
     d, meta = decide(s, "moon", QUESTION)
     assert meta["source"] == "agent"
     assert d["result"] == "miss" and d["retry"] and d["action"] == "retry_with_hint"  # authored, not the agent's
-    assert d["feedback"] == "Ooh, nearly, let's think again! " + QUESTION["decision"]["hint"]
+    assert d["feedback"] == "Ooh, nearly, let's think again! The sun shines in the daytime."
     assert "TURN TYPE: AUTHORED" in model.messages[0][0]["content"]
     assert s["level"] == 1
 
