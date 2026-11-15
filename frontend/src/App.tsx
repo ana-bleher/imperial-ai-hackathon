@@ -398,6 +398,26 @@ const isChoicePhase = (page: Scene | null | undefined) => Boolean(page?.choices)
 
 const absoluteUrl = (url: string) => (url.startsWith("/") ? `${API_URL}${url}` : url);
 
+// The watercolour (fal) version of each child's avatar, remembered on this device so every
+// later story starts with it straight away. Tied to the avatar's look: changing it repaints.
+const avatarSignature = (child: Child) =>
+  [child.skin, child.hair, child.hairColor, child.outfit, child.friend].join("|");
+function savedPainting(child: Child): string | null {
+  try {
+    const saved = JSON.parse(localStorage.getItem(`speakaboo-painted-${child.id}`) ?? "null");
+    return saved && saved.signature === avatarSignature(child) ? (saved.url as string) : null;
+  } catch {
+    return null;
+  }
+}
+function savePainting(child: Child, url: string) {
+  try {
+    localStorage.setItem(`speakaboo-painted-${child.id}`, JSON.stringify({ url, signature: avatarSignature(child) }));
+  } catch {
+    /* storage unavailable */
+  }
+}
+
 // The stories on the shelf. "adventure" pages are written live by the backend, one per choice.
 type StoryKind = "pip" | "adventure";
 const STORIES: Record<StoryKind, { title: string; cover: string }> = {
@@ -1553,7 +1573,11 @@ function StoryScene({
   // picture that loads instantly can never be marked "loading" again afterwards.
   const [loadedImage, setLoadedImage] = useState<string | null>(null);
   const [titleCard, setTitleCard] = useState(false);
-  const [paintedAvatar, setPaintedAvatar] = useState<string | null>(null);
+  const [paintedAvatar, setPaintedAvatarState] = useState<string | null>(() => savedPainting(child));
+  const setPaintedAvatar = (url: string) => {
+    setPaintedAvatarState(url);
+    savePainting(child, url);
+  };
   const sessionPromiseRef = useRef<Promise<Awaited<ReturnType<typeof startSession>>> | null>(null);
   const [coverInvite, setCoverInvite] = useState(false); // "Open the book" shimmers once the cover has been read
   const introAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -2490,7 +2514,12 @@ function StoryScene({
               )}
               <div className="scene-avatar-person">
                 {paintedAvatar ? (
-                  <img className="painted-avatar" src={paintedAvatar} alt={`${child.name}'s avatar`} />
+                  <img
+                    className="painted-avatar"
+                    src={paintedAvatar}
+                    alt={`${child.name}'s avatar`}
+                    onError={() => setPaintedAvatarState(null)}
+                  />
                 ) : (
                   <Avatar child={child} />
                 )}
