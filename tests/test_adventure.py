@@ -114,7 +114,7 @@ def test_start_writes_page_one_in_the_scene_shape(monkeypatch):
         sess = start(c)
     scene = sess["scene"]
     assert scene["id"] == "a1" and scene["index"] == 1 and scene["total"] == 4
-    assert scene["narration"].startswith("Lila and bunny walked")
+    assert scene["narration"].startswith("Lila and her bunny walked")
     assert scene["image_url"].endswith("/static/backgrounds/01-sunrise-meadow-watercolour-bg.jpg")
     assert scene["avatar_position"] == adventure.BACKGROUNDS["sunrise-meadow"]["avatar_position"]
     assert scene["choices"] == [{"word": "garden", "label": "Go to the garden", "icon": None},
@@ -215,3 +215,42 @@ def test_pip_story_is_unchanged():
     s = SESSIONS[sess["session_id"]]
     assert "scenes" not in s and main.scene_of(s, "s2") is SCENES["s2"]
     assert all(not k.startswith("a") or k == "a" for k in SCENES)  # no adventure page leaked into SCENES
+
+
+# ---------- the Claude call ----------
+
+REAL_CALL_MODEL = adventure.call_model  # captured at import, before conftest replaces it
+
+
+def test_page_call_uses_auto_tool_choice_and_low_effort(monkeypatch):
+    seen = {}
+
+    class Messages:
+        async def create(self, **kwargs):
+            seen.update(kwargs)
+            return SimpleNamespace(content=[])
+    monkeypatch.setattr(adventure, "client", lambda: SimpleNamespace(messages=Messages()))
+    asyncio.run(REAL_CALL_MODEL("PAGE: 1 of 4"))
+    assert seen["tool_choice"] == {"type": "auto"}
+    assert seen["output_config"] == {"effort": "low"}
+    assert [t["name"] for t in seen["tools"]] == ["write_page"]
+    assert "ONLY by calling the `write_page` tool, exactly once" in adventure.SYSTEM_PROMPT
+
+
+def test_reply_without_write_page_is_an_invalid_page(monkeypatch):
+    async def text_only(message):
+        return SimpleNamespace(content=[SimpleNamespace(type="text", text="Once upon a time...")])
+    monkeypatch.setattr(adventure, "call_model", text_only)
+    data, why = asyncio.run(adventure.generate_page(1, [], "bunny", None))
+    assert why == "invalid page: write_page not called"
+    assert data["background_id"] == "sunrise-meadow"
+
+
+def test_api_error_message_is_logged(monkeypatch, caplog):
+    async def bad_request(message):
+        raise RuntimeError("Error code: 400 - tool_choice: type \"tool\" is not supported")
+    monkeypatch.setattr(adventure, "call_model", bad_request)
+    with caplog.at_level("WARNING", logger="adventure"):
+        _, why = asyncio.run(adventure.generate_page(2, [], "bunny", {"word": "lake", "label": "Lake"}))
+    assert why.startswith("generation error: RuntimeError: Error code: 400")
+    assert "tool_choice" in caplog.text

@@ -5,7 +5,8 @@ Page 4 is a calm goodnight ending with the authored challenge "Can you whisper '
 Pages have the same scene shape as data/story.json scenes, plus: page, parent, background_id,
 image_path. They live on the session (sess["scenes"]); the Pip story's SCENES is never touched.
 
-One Claude call per page (GENERATE_TIMEOUT), with a single forced tool write_page. Code validates
+One Claude call per page (GENERATE_TIMEOUT), with a single tool write_page (tool_choice auto: the
+prompt requires exactly one write_page call; a response without it is an invalid page). Code validates
 the page (validate_page); anything slow, failing or invalid -> a pre-written fallback page.
 The child's name is never sent: the model writes {CHILD_NAME} and {PET} placeholders.
 """
@@ -75,7 +76,10 @@ async def call_model(message: str):
     return await client().messages.create(
         model=MODEL, max_tokens=800,
         system=[{"type": "text", "text": SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}],
-        tools=[WRITE_PAGE], tool_choice={"type": "tool", "name": "write_page"},
+        # Forced tool choice ("tool"/"any") is rejected by this model; the prompt requires write_page,
+        # and a response without it is an invalid page (fallback).
+        tools=[WRITE_PAGE], tool_choice={"type": "auto"},
+        output_config={"effort": "low"},
         messages=[{"role": "user", "content": message}],
     )
 
@@ -269,6 +273,6 @@ async def generate_page(page: int, story_so_far: list[dict], pet: str, choice: d
     except ValueError as e:
         why = f"invalid page: {e}"
     except Exception as e:  # API or network error: the story must never stall
-        why = f"generation error: {type(e).__name__}"
+        why = f"generation error: {type(e).__name__}: {' '.join(str(e).split())[:300]}"
     log.warning("adventure page %s fallback: %s", page, why)
     return fallback_page(page, choice), why
