@@ -4553,3 +4553,41 @@ html.night .timeline-why b { color: #f2c14e; }
 @media (prefers-reduced-motion: reduce) { .thought-bubble { animation: none; } }
 
 .thought-bubble-word { font-size: 17px; padding: 14px 10px; text-align: center; line-height: 1.15; }
+
+/* Typed age field */
+.age-input { display: flex; align-items: center; gap: 12px; }
+.age-input input {
+  width: 84px;
+  height: 52px;
+  border-radius: 16px;
+  border: 2px solid rgba(27, 35, 64, 0.15);
+  background: #fffaf2;
+  font-family: "Nunito", sans-serif;
+  font-size: 24px;
+  font-weight: 800;
+  text-align: center;
+  color: var(--navy);
+}
+.age-input input:focus { outline: none; border-color: var(--gold); box-shadow: 0 0 0 4px rgba(242, 193, 78, 0.3); }
+.age-input span { color: var(--ink-muted); font-size: 14px; }
+/* Highlight hugs the words (no trailing space) */
+.narration p span { padding: 0 2px; }
+/* Who decided: AI tutor vs story rule */
+.source-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 800;
+  vertical-align: middle;
+}
+.source-badge--agent { background: #e6f4f0; color: #2f6b63; }
+.source-badge--rule { background: #efeae0; color: #6b5a3a; }
+html.night .source-badge--agent { background: rgba(95, 179, 168, 0.25); color: #bfe8e1; }
+html.night .source-badge--rule { background: rgba(246, 234, 210, 0.15); color: #f6ead2; }
+
+/* Plain typed age box: no up/down arrows */
+.age-input input::-webkit-outer-spin-button,
+.age-input input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.age-input input { -moz-appearance: textfield; appearance: textfield; }
