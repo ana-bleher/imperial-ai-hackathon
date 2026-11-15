@@ -111,22 +111,22 @@ def test_agent_off_topic_keeps_the_question_and_appends_it(monkeypatch):
 
 def test_quiz_fallback_misses_are_short_and_different():
     s = session(QUIZ)
-    first = fb.turn(s, QUIZ, QUIZ["narration"], "moon")["feedback"]
+    first = fb.turn(s, QUIZ, QUIZ["narration"], "stars")["feedback"]
     second = fb.turn(s, QUIZ, QUIZ["narration"], "moon")["feedback"]
     assert first == "Good try! The sun shines in the daytime and helps flowers grow."
-    assert second == "Ooh, close! Can you say 'sun'?"  # a different, simpler hint
+    assert second == "Ooh, close! Can you say 'sun'?"  # a different, simpler hint ("moon" is the other option)
     for line in (first, second):
         assert fb.sentences(line) <= 2
     third = fb.turn(s, QUIZ, QUIZ["narration"], "moon")
     assert third["action"] == "move_on" and third["feedback"] == "Good try! It's the sun."
 
 
-def test_agent_quiz_miss_of_two_sentences_is_rejected(monkeypatch):
+def test_agent_quiz_miss_of_three_sentences_is_rejected(monkeypatch):
     monkeypatch.setattr(tutor, "call_model", fake(
-        ("next_step", {"action": "retry_with_hint", "say": "Good try. Let's think about it again!"})))
+        ("next_step", {"action": "retry_with_hint", "say": "Ooh, close. Let's think. Look again!"})))
     d, meta = decide(session(QUIZ), "moon", QUIZ)
-    assert "one short sentence" in meta["fallback_reason"]
-    assert d["feedback"] == "Good try! The sun shines in the daytime and helps flowers grow."
+    assert "longer than 2 sentences" in meta["fallback_reason"]
+    assert d["feedback"] == "Ooh, close! The sun shines in the daytime and helps flowers grow."
 
 
 def test_agent_quiz_hint_changes_on_the_second_miss(monkeypatch):

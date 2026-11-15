@@ -205,7 +205,8 @@ def test_question_wrong_answer_gives_authored_hint_and_retries():
     s = fresh(QUESTION)
     d = say(s, "moon", QUESTION)
     assert d["result"] == "miss" and d["retry"] and d["action"] == "retry_with_hint"
-    assert d["feedback"] == "Good try! The sun shines in the daytime."  # the hint's first sentence
+    # "moon" names the other option, so it is close; then the hint's first sentence
+    assert d["feedback"] == "Ooh, close! The sun shines in the daytime."
     assert "wrong" not in d["feedback"].lower()
 
 

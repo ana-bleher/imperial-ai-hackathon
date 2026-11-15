@@ -39,6 +39,18 @@ COMMON_WORDS = {
     "amazing", "wow", "fun", "story", "next", "happens", "see", "copy", "turn", "hello", "thank",
     "thanks", "please", "okay", "sound", "starts", "word", "words", "choice", "adventure", "super",
 }
+# Everyday, non-personal things a child may bring up off-topic: the agent may name them back
+# ("Dinosaurs are fun!"). Names, places and anything else the child says are still never repeated.
+SAFE_TOPICS = {
+    "dinosaur", "dog", "cat", "puppy", "kitten", "bunny", "rabbit", "horse", "pony", "unicorn",
+    "dragon", "bird", "duck", "bear", "teddy", "toy", "ball", "car", "train", "truck", "robot",
+    "doll", "block", "cake", "cookie", "pizza", "banana", "apple", "rainbow", "princess", "rocket",
+    "football", "swing", "slide", "snow", "bubble", "balloon",
+}
+SAFE_TOPICS |= {w + "s" for w in SAFE_TOPICS} | {"puppies", "bunnies", "ponies", "teddies"}
+
+# The one length rule for every `say` (prompts/story_agent.md, "How Pip talks").
+MAX_SAY_SENTENCES, MAX_SAY_WORDS = 2, 15
 
 # Phrases the agent may not say (CLAUDE.md voice rules): the app cannot speak with the child,
 # and "trying" is not a noun.
@@ -51,8 +63,9 @@ BANNED_PHRASES = [
     ("little word", re.compile(r"\blittle\s+words?\b", re.I)),
     ("a easier", re.compile(r"\ba\s+easier\b", re.I)),  # grammar: "an easier"
 ]
-# Off-topic answers are not attempts: no effort praise.
-TRY_PHRASES = re.compile(r"\b(?:nice|good|great|lovely)\s+try\b|\bclose\b|\bnearly\b|\balmost\b", re.I)
+# Effort praise on a miss: "Good try!" only for a real attempt, "close" only for a close answer.
+EFFORT_PHRASES = re.compile(r"\b(?:nice|good|great|lovely)\s+try\b", re.I)
+CLOSE_PHRASES = re.compile(r"\bclose\b|\bnearly\b|\balmost\b", re.I)
 # A branch the child did not pick (proposal not accepted): never sounds like their choice.
 PICKED_PHRASES = re.compile(r"\bit\s+is\b|\byou\s+(?:chose|picked)\b|\b(?:good|great)\s+idea\b", re.I)
 
@@ -137,7 +150,7 @@ def leaks_child_words(text: str, transcript: str, vocab: set[str]) -> bool:
     (a crude guard for "never repeat personal information back"), or contains digits."""
     if any(ch.isdigit() for ch in text):
         return True
-    allowed = vocab | COMMON_WORDS | fallback.STOPWORDS | fallback.YES | fallback.NO
+    allowed = vocab | COMMON_WORDS | SAFE_TOPICS | fallback.STOPWORDS | fallback.YES | fallback.NO
     said = {w for w in fallback.words(transcript) if len(w) >= 3 and w not in allowed}
     return bool(said & set(fallback.words(text)))
 
@@ -162,6 +175,42 @@ def check_wording(text: str, what: str) -> None:
     phrase = banned_phrase(text)
     if phrase:
         raise InvalidAgentOutput(f"{what} uses banned phrase '{phrase}'")
+
+
+def check_length(say: str) -> None:
+    if fallback.sentences(say) > MAX_SAY_SENTENCES or len(fallback.words(say)) > MAX_SAY_WORDS:
+        raise InvalidAgentOutput(f"line longer than {MAX_SAY_SENTENCES} sentences / {MAX_SAY_WORDS} words")
+
+
+def check_effort(say: str, kind: str) -> None:
+    """kind from fallback.attempt_kind: no effort praise without a real attempt, no "close" unless close."""
+    if kind == "none" and (EFFORT_PHRASES.search(say) or CLOSE_PHRASES.search(say)):
+        raise InvalidAgentOutput("effort praise without a real attempt")
+    if kind == "attempt" and CLOSE_PHRASES.search(say):
+        raise InvalidAgentOutput("'close' but the answer was not close")
+
+
+def check_acknowledge_only(say: str) -> None:
+    """Off-topic: the line only acknowledges; code appends the question."""
+    if "?" in say:
+        raise InvalidAgentOutput("off-topic line repeats a question (code appends it)")
+
+
+EFFORT_NOTES = {
+    "none": "IF A MISS, EFFORT PRAISE: none (not a real attempt): no \"Good try\", \"Nice try\" or \"close\".",
+    "attempt": "IF A MISS, EFFORT PRAISE: a real attempt: \"Good try!\" is fine; not \"close\".",
+    "close": "IF A MISS, EFFORT PRAISE: the answer was close: \"Ooh, close!\" is fine.",
+}
+
+
+def authored_attempt(scene: dict, transcript: str) -> str:
+    """fallback.attempt_kind for an authored quiz; "none" for a branch choice or a first silence."""
+    kind = fallback.decision_type(scene)
+    if kind == fallback.SINGLE_CORRECT:
+        dec = scene["decision"]
+        others = [o["word"] for o in dec["options"] if o["word"] != dec["correct_word"]]
+        return fallback.attempt_kind(transcript, [dec["correct_word"]], others + dec.get("incorrect_words", []))
+    return "none"  # a story choice has no right answer to try for; first silence is not an attempt
 
 
 def content_words(targets: list[str]) -> list[str]:
@@ -236,13 +285,14 @@ def answer_kind(sess: dict, transcript: str) -> str | None:
 
 def answer_notes(sess: dict, transcript: str) -> list[str]:
     kind = answer_kind(sess, transcript)
+    notes = [EFFORT_NOTES[fallback.challenge_attempt(sess["challenge"], transcript)]]
     if kind == "off_topic":
-        return ["ANSWER IS OFF-TOPIC: acknowledge it kindly in a few words (no 'nice try'), assess miss, "
-                "retry_with_hint; code repeats the SAME question after your line (do not call ask)."]
+        notes.append("ANSWER IS OFF-TOPIC: only acknowledge it kindly in a few words, no question; assess "
+                     "miss, retry_with_hint (move_on on the last attempt); code repeats the SAME question after your line (do not call ask).")
     if kind == "dont_know":
-        return ["CHILD IS NOT SURE: start kindly (\"That's okay!\"), assess miss, retry_with_hint with an "
-                "easier question; code adds that question after your line if your line does not contain it."]
-    return []
+        notes.append("CHILD IS NOT SURE: start kindly (\"That's okay!\"), assess miss, retry_with_hint with an "
+                     "easier question; code adds that question after your line if your line does not contain it.")
+    return notes
 
 
 def authored_message(sess, scene, narration, transcript, d, next_narration=None) -> str:
@@ -261,15 +311,17 @@ def authored_message(sess, scene, narration, transcript, d, next_narration=None)
     tail = authored_tail(scene, d)
     if tail:
         lines.append(f"CODE WILL SAY AFTER YOUR LINE: {tail!r}")
+    if d["result"] != "hit":
+        lines.append(EFFORT_NOTES[authored_attempt(scene, transcript)])
     if d.get("off_topic"):
-        lines.append("ANSWER IS OFF-TOPIC: acknowledge it kindly in a few words (no 'nice try').")
+        lines.append("ANSWER IS OFF-TOPIC: only acknowledge it kindly in a few words, no question.")
     elif fallback.dont_know(transcript) and d["result"] == "miss":
         lines.append("CHILD IS NOT SURE: start kindly, e.g. \"That's okay!\".")
     if d.get("chosen_by_child") is False:
         lines.append(f"THE CHILD DID NOT CHOOSE: code picked the {d['chosen']}. Say e.g. "
                      f"\"Let's try the {d['chosen']}!\", never \"The {d['chosen']} it is!\".")
     if fallback.decision_type(scene) == fallback.SINGLE_CORRECT and d["result"] == "miss":
-        lines.append("QUIZ MISS: your line is ONE short sentence, different from your last one.")
+        lines.append("QUIZ MISS: your line must differ from your last one.")
     if next_narration:
         lines += [
             f"CHILD STATE (get_child_state): {get_child_state(sess)}",
@@ -343,18 +395,21 @@ def apply_speaking(sess, scene, narration, transcript, calls, next_narration, na
     if leaks_child_words(say, transcript, vocab):
         raise InvalidAgentOutput("line repeats the child's own words")
     check_wording(say, "line")
+    check_length(say)
+    if not hit:
+        check_effort(say, fallback.challenge_attempt(challenge, transcript))
 
     retry = action == "retry_with_hint"
     kind = answer_kind(sess, transcript)
-    if kind == "off_topic" and TRY_PHRASES.search(say):
-        raise InvalidAgentOutput("off-topic answer met with effort praise")
+    if retry and kind == "off_topic":
+        check_acknowledge_only(say)
     new_challenge = next_challenge = None
     if retry and kind == "off_topic":  # steer back to the same question
         new_challenge = challenge
     elif retry:  # one step easier: the agent's, or the fallback's step down
         if "ask" in calls:
             new_challenge = safe_ask(check_challenge(calls["ask"], narration, level, name_words,
-                                                     retry_from=challenge), transcript, vocab)
+                                                     retry_from=challenge), transcript, vocab, retry=True)
         else:
             new_challenge = questions.step_down(challenge, narration, sess["key_word"], level)
     elif "ask" in calls and next_narration:
@@ -362,7 +417,8 @@ def apply_speaking(sess, scene, narration, transcript, calls, next_narration, na
                                   transcript, vocab)
 
     feedback = say
-    if retry and kind and not names(say, new_challenge["target_words"] or [new_challenge["prompt"]]):
+    if retry and (kind == "off_topic" or (kind and not names(
+            say, new_challenge["target_words"] or [new_challenge["prompt"]]))):
         feedback = f"{say} {new_challenge['prompt']}"  # the question or clue itself, after the kind words
     check_not_repeated(feedback, sess, retry)
 
@@ -412,11 +468,11 @@ def apply_authored(scene, transcript, d, calls, vocab, last_feedback=None) -> di
             raise InvalidAgentOutput(f"choice line sounds like a right answer ('{phrase}')")
         if d.get("chosen_by_child") is False and PICKED_PHRASES.search(say):
             raise InvalidAgentOutput("line sounds like the child chose, but code picked")
-    if d.get("off_topic") and TRY_PHRASES.search(say):
-        raise InvalidAgentOutput("off-topic answer met with effort praise")
-    if fallback.decision_type(scene) == fallback.SINGLE_CORRECT and d["result"] == "miss" \
-            and fallback.sentences(say) > 1:
-        raise InvalidAgentOutput("quiz miss line must be one short sentence")
+    check_length(say)
+    if d["result"] != "hit":
+        check_effort(say, authored_attempt(scene, transcript))
+    if d.get("off_topic"):
+        check_acknowledge_only(say)
     tail = authored_tail(scene, d)
     feedback = f"{say} {tail}".strip()
     if d["retry"] and feedback == last_feedback:
@@ -453,12 +509,34 @@ async def _ask_agent(message: str) -> tuple[dict | None, dict]:
     return calls, meta
 
 
-def safe_ask(ch: dict | None, transcript: str, vocab: set[str]) -> dict | None:
-    """The agent's question is spoken to the child: same leak and wording checks as its `say` line."""
+WAS_IT = re.compile(r"\bwas\s+it\b", re.I)
+
+
+def one_question(ch: dict, retry: bool = False) -> dict:
+    """A question asks one thing once. Two question marks or a repeated "Was it" ("Did the bells go
+    ting once, or three times? Was it one or three?"): use the frame for that type instead
+    (choice: "Was it one or three?"; say: "Can you say 'x'?" / "Listen: 'x'. Now you try!").
+    Other types have no frame: the question is rejected and code's fallback question is used."""
+    prompt = ch["prompt"]
+    if prompt.count("?") < 2 and len(WAS_IT.findall(prompt)) < 2:
+        return ch
+    qt, targets = ch["question_type"], ch["target_words"]
+    if qt == questions.CHOICE:
+        return {**ch, "prompt": f"Was it {targets[0]} or {targets[1]}?"}
+    if qt == questions.SAY:
+        phrase = " ".join(targets)
+        return {**ch, "prompt": f"Listen: '{phrase}'. Now you try!" if retry else f"Can you say '{phrase}'?"}
+    raise InvalidAgentOutput("question asks more than one thing")
+
+
+def safe_ask(ch: dict | None, transcript: str, vocab: set[str], retry: bool = False) -> dict | None:
+    """The agent's question is spoken to the child: same leak and wording checks as its `say` line,
+    and it asks one thing once."""
     if ch and leaks_child_words(ch["prompt"], transcript, vocab):
         raise InvalidAgentOutput("question repeats the child's own words")
     if ch:
         check_wording(ch["prompt"], "question")
+        ch = one_question(ch, retry)
     return ch
 
 
