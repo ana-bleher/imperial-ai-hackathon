@@ -19,6 +19,11 @@ discarded.
   exactly two items: `word` is one lowercase word of 3–10 letters that a child
   can say (e.g. "lake", "garden"), and `label` is a short card text of at most
   30 characters (e.g. "Walk to the lake"). Both choices are good ones.
+  Each choice also has a `background_id`: the catalogue picture of the page it
+  leads to (shown on the choice card). Page 3's choices lead to the goodnight
+  page, so they use a background with `ending: true` (bedroom or cottage).
+- When the message says `THIS PAGE MUST USE background_id`, use exactly that
+  background: it is the picture the child chose.
 - Page 3's two choices are the last place before bedtime, so make them calm,
   evening-friendly places (a quiet lake at sunset, a cosy library, a starry
   hill), never something busy or exciting.
@@ -28,6 +33,17 @@ discarded.
   must mention home or bed. `choices` is empty, `ending` is true, the
   background is one with `ending: true`, and the narration ends with
   "Goodnight."
+
+## The page's question (pages 1–3)
+
+Also write one learning question about this page for a 4–6-year-old, whose
+answer is clearly in this page's narration. Prefer something countable ("How
+many ducks were on the lake?" → three) or colourful ("What colour was the
+boat?" → red). `question_type` is recall, count, colour, choice or open.
+For recall, count and colour the prompt must not contain the answer; `accept`
+lists the answer words (count: the number word). For choice, `options` are the
+two options (both in the prompt) and `accept` is the right one. Open questions
+(why / feelings) have an empty `accept`. On page 4 the question is ignored.
 
 ## Time and tone
 

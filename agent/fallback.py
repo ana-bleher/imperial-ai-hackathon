@@ -414,6 +414,12 @@ def _match_branch(scene: dict, said: list[str]) -> dict | None:
     return None
 
 
+def choice_line(state: dict, word: str) -> str:
+    """Follow the child's pick; never sounds like a right answer (a choice has no right or wrong)."""
+    name = (state.get("child") or {}).get("child_name")
+    return f"The {word} it is, {name}! Off we go." if name else f"The {word} it is! Off we go."
+
+
 def _branch_turn(state: dict, scene: dict, transcript: str) -> dict:
     branches = scene["branches"]
     said = words(transcript)
@@ -421,7 +427,7 @@ def _branch_turn(state: dict, scene: dict, transcript: str) -> dict:
     chosen = _match_branch(scene, settled_words(transcript))
     if chosen:
         return _decision(result="hit", action="advance", next_id=chosen["next"],
-                         feedback=f"You said '{chosen['word']}'! Let's go!", chosen=chosen["word"],
+                         feedback=choice_line(state, chosen["word"]), chosen=chosen["word"],
                          reason=f"Chose '{chosen['word']}'")
 
     if not said and state["silences"] == 0:
@@ -436,7 +442,7 @@ def _branch_turn(state: dict, scene: dict, transcript: str) -> dict:
         declined = bool(set(said) & NO and not set(said) & YES)
         pick = other if declined else proposed
         return _decision(result="hit", log_result="choice", action="advance", next_id=pick["next"],
-                         feedback=f"Let's take the {pick['word']}!", chosen=pick["word"],
+                         feedback=choice_line(state, pick["word"]), chosen=pick["word"],
                          reason=f"Proposed '{proposed['word']}'; "
                                 + (f"child said no, took '{pick['word']}'" if declined else "went with it"))
 

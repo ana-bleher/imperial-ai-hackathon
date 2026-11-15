@@ -96,6 +96,10 @@ streaks as in the ladder below.
 - Branch: every declared option is valid. Name and celebrate the supplied
   choice; clarification is not a learning miss. Code handles repeated options,
   proposals and defaults; do not choose another route.
+  For a choice, acknowledge and follow the child's pick, e.g. "The bridge it
+  is!", "Ooh, the waterfall! Off we go.", "Good idea, let's go to the garden!".
+  Never "Yes", "Correct", "Right", "That's right", "Well done", "Good job" or
+  "Great choice" on a choice: there is no right or wrong.
 - First silence: gentle encouragement ("Take your time!") without counting a miss.
 
 Code appends authored hints, questions, options or revealed answers and enforces
