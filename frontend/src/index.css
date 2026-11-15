@@ -4591,3 +4591,25 @@ html.night .source-badge--rule { background: rgba(246, 234, 210, 0.15); color: #
 .age-input input::-webkit-outer-spin-button,
 .age-input input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 .age-input input { -moz-appearance: textfield; appearance: textfield; }
+
+/* Night mode: secondary buttons (e.g. "Start again") readable */
+/* only on the dark night pages; the login card stays cream, so its buttons keep navy text */
+html.night :is(.cream-page, .dashboard-page, .story-controls) .secondary-button {
+  color: #f6ead2;
+  border-color: rgba(246, 234, 210, 0.35);
+}
+html.night :is(.cream-page, .dashboard-page, .story-controls) .secondary-button:hover { border-color: #f2c14e; }
+html.night .bookcase .secondary-button {
+  color: #fff6e5;
+  background: rgba(20, 26, 48, 0.55);
+  border-color: rgba(242, 193, 78, 0.6);
+}
+
+/* Login card is always cream (day and night): its "Try the demo" button keeps dark text */
+html.night .login-card .secondary-button,
+html.night .login-card .demo-login-button {
+  color: #1b2340 !important;
+  border-color: rgba(27, 35, 64, 0.3) !important;
+  background: transparent !important;
+  opacity: 1 !important;
+}

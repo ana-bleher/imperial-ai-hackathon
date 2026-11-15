@@ -418,6 +418,43 @@ function savePainting(child: Child, url: string) {
   }
 }
 
+// Start painting the avatar in watercolour as soon as the parent saves it, so it is ready before
+// the first story. Fire-and-forget: never blocks the UI, errors and timeouts are ignored, nothing
+// is shown to the child. Not repeated while the avatar is unchanged.
+function requestPainting(child: Child, png: string | null) {
+  if (!png || savedPainting(child)) return;
+  const key = `speakaboo-paint-requested-${child.id}`;
+  try {
+    if (localStorage.getItem(key) === avatarSignature(child)) return;
+    localStorage.setItem(key, avatarSignature(child));
+  } catch {
+    /* storage unavailable: just send it */
+  }
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), 5000);
+  void fetch(`${API_URL}/avatar/paint`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      avatar: {
+        skin_tone: child.skin,
+        hair_style: child.hair,
+        hair_colour: child.hairColor,
+        outfit: child.outfit,
+        pet: child.friend,
+        image_png: png,
+      },
+    }),
+    signal: controller.signal,
+  })
+    .then((response) => (response.ok ? response.json() : null))
+    .then((data: { status?: string; avatar_url?: string | null } | null) => {
+      if (data?.status === "ready" && data.avatar_url) savePainting(child, absoluteUrl(data.avatar_url));
+    })
+    .catch(() => undefined)
+    .finally(() => window.clearTimeout(timer));
+}
+
 // The stories on the shelf. "adventure" pages are written live by the backend, one per choice.
 type StoryKind = "pip" | "adventure";
 const STORIES: Record<StoryKind, { title: string; cover: string }> = {
@@ -1221,10 +1258,11 @@ function CreateChild({
   initialChild,
 }: {
   onBack: () => void;
-  onDone: (child: Child) => void;
+  onDone: (child: Child, avatarPng: string | null) => void;
   initialChild?: Child;
 }) {
   const [step, setStep] = useState(0);
+  const previewRef = useRef<HTMLDivElement | null>(null);
   const [name, setName] = useState(initialChild?.name ?? "");
   const [age, setAge] = useState(initialChild?.age ?? 5);
   const [ageText, setAgeText] = useState(String(initialChild?.age ?? 5));
@@ -1258,7 +1296,14 @@ function CreateChild({
     `What will ${name || "your hero"} wear?`,
     "Choose an animal friend",
   ];
-  const nextStep = () => (step < 6 ? setStep(step + 1) : onDone(preview));
+  const nextStep = () => {
+    if (step < 6) {
+      setStep(step + 1);
+      return;
+    }
+    // snapshot the drawn avatar for the watercolour painting, then save straight away
+    void avatarToPng(previewRef.current).then((png) => onDone(preview, png));
+  };
 
   const optionCard = (
     label: string,
@@ -1287,7 +1332,7 @@ function CreateChild({
       <section className="create-panel">
         <div className="create-live-preview">
           <StarField count={10} />
-          <div className="preview-avatar">
+          <div className="preview-avatar" ref={previewRef}>
             <Avatar child={preview} />
           </div>
           <div className="preview-friend">
@@ -2002,6 +2047,7 @@ function StoryScene({
     const startedAt = performance.now();
     let lastVoiceAt = startedAt;
     let heardVoice = false;
+    let loudSince: number | null = null; // when the current stretch of loud sound began
     let stopped = false;
 
     const stop = () => {
@@ -2022,11 +2068,29 @@ function StoryScene({
       }
       const volume = Math.sqrt(energy / samples.length);
       const now = performance.now();
-      if (volume > 0.035) {
-        heardVoice = true;
-        lastVoiceAt = now;
+      // Child-friendly listening:
+      // - ignore the first 400 ms (tail of Pip's voice / echo is not the child)
+      // - only count real speech: louder than 0.045 for ~250 ms in a row (not a breath or click)
+      // - allow pauses and "um…" of up to 2.5 s once the child has started
+      // - give up to 12 s of thinking time before treating it as no answer
+      const IGNORE_START_MS = 400;
+      const THRESHOLD = 0.045;
+      const SUSTAIN_MS = 250;
+      const END_PAUSE_MS = 2500;
+      const NO_SPEECH_MS = 12000;
+      if (now - startedAt >= IGNORE_START_MS && volume > THRESHOLD) {
+        if (loudSince === null) loudSince = now;
+        if (now - loudSince >= SUSTAIN_MS) heardVoice = true;
+        if (heardVoice) lastVoiceAt = now;
+      } else {
+        loudSince = null;
       }
-      if ((heardVoice && now - lastVoiceAt > 1500) || now - startedAt >= 8000) stop();
+      if (
+        (heardVoice && now - lastVoiceAt > END_PAUSE_MS) ||
+        (!heardVoice && now - startedAt >= NO_SPEECH_MS) ||
+        now - startedAt >= 25000 // safety cap, e.g. a noisy room that never goes quiet
+      )
+        stop();
       else animationRef.current = requestAnimationFrame(measure);
     };
 
@@ -3492,19 +3556,21 @@ export default function App() {
     setScreen("library");
   };
 
-  const addChild = (child: Child) => {
+  const addChild = (child: Child, avatarPng: string | null = null) => {
     // A unique id, so a new child never inherits an earlier child's saved pages, stars or history.
     const nextChild = { ...child, id: Date.now() };
+    requestPainting(nextChild, avatarPng);
     setChildren([...children, nextChild]);
     setActiveId(nextChild.id);
     setScreen("library");
   };
 
-  const saveChild = (child: Child) => {
+  const saveChild = (child: Child, avatarPng: string | null = null) => {
     if (!editingChild) {
-      addChild(child);
+      addChild(child, avatarPng);
       return;
     }
+    requestPainting(child, avatarPng); // edited avatar: repaint only if its look changed
     setChildren(children.map((item) => (item.id === child.id ? child : item)));
     setActiveId(child.id);
     setEditingChild(undefined);
