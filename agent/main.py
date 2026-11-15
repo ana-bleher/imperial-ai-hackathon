@@ -487,7 +487,7 @@ async def session_start(request: Request):
     in_background(tutor.warm_up())  # so the first /turn does not pay for a cold Anthropic connection
     is_adventure = body.get("story") == "adventure" and adventure_enabled()
     sess["story"] = "adventure" if is_adventure else "pip"
-    if is_adventure:  # page 1 is written now (fallback opening after GENERATE_TIMEOUT)
+    if is_adventure:  # page 1 is the pre-written opening (instant)
         sess["scenes"], sess["page_tasks"] = {}, {}
         data, why = await adventure.generate_page(1, [], pet_of(sess), None)
         first = "a1"
@@ -499,14 +499,14 @@ async def session_start(request: Request):
         title = STORY["title"]
     enter_scene(sess, first)
     SESSIONS[session_id] = sess
+    if is_adventure:
+        prefetch_pages(sess, first)                  # both page 2s start now, before any audio
     intro_text = (f"{title}. Hello {name}! Are you ready for tonight's bedtime story? "
                   "Snuggle in, and when you're ready, open the book.")  # read on the book cover
     first_audio, first_challenge_audio, intro_audio = await asyncio.gather(  # ready in the response
         narration_path(sess, first), challenge_path(sess),
         voice(voice_tools.speak, intro_text, timeout=NARRATION_TIMEOUT))
-    if is_adventure:
-        prefetch_pages(sess, first)                  # both possible page 2s, while page 1 is read
-    else:
+    if not is_adventure:
         in_background(speak_all_narration(sess))     # the rest is generated while the child listens
     return {"session_id": session_id, "child_id": child_id, "stars": 0,
             "avatar_url": audio_url(request, sess["avatar_path"]),  # set now only if already painted

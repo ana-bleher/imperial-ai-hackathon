@@ -17,10 +17,13 @@ BACKGROUND = {1: "sunrise-meadow", 2: "wildflower-garden", 3: "lighthouse-cliff"
 GOOD = ("{CHILD_NAME} and {PET} walked along a soft green path. The sun was warm and the birds sang "
         "sweetly in the trees. They smiled at the flowers and listened to the gentle breeze. "
         "What a lovely, cosy day it was for a little adventure together.")
+ENDING = ("{CHILD_NAME} and {PET} had a last quiet look at the cottage garden. Then they walked home "
+          "under the stars. {CHILD_NAME} snuggled into a warm bed and {PET} curled up close. The moon "
+          "smiled softly through the window. What a lovely adventure it had been. Goodnight.")
 
 
 def page_input(page: int, **override) -> dict:
-    data = {"narration": GOOD + (" Goodnight." if page == 4 else ""), "background_id": BACKGROUND[page],
+    data = {"narration": ENDING if page == 4 else GOOD, "background_id": BACKGROUND[page],
             "choices": [] if page == 4 else [{"word": w, "label": f"Go to the {w}"} for w in CHOICES[page]],
             "ending": page == 4}
     return {**data, **override}
@@ -68,15 +71,17 @@ def test_valid_page_is_accepted():
 
 
 @pytest.mark.parametrize("page,override,why", [
-    (1, {"background_id": "space-station"}, "unknown background"),
-    (1, {"narration": GOOD.replace("{CHILD_NAME}", "Lila")}, "CHILD_NAME"),
-    (1, {"narration": GOOD.replace("gentle breeze", "scary monster")}, "scary"),
-    (1, {"choices": [{"word": w, "label": w} for w in ("lake", "hill", "cave")]}, "exactly 2"),
-    (1, {"choices": [{"word": "lake", "label": "Lake"}, {"word": "lake", "label": "Lake again"}]}, "different"),
-    (1, {"choices": [{"word": "Lake", "label": "Lake"}, {"word": "hill", "label": "Hill"}]}, "lowercase"),
-    (1, {"choices": [{"word": "lake", "label": "x" * 31}, {"word": "hill", "label": "Hill"}]}, "1-30"),
-    (1, {"narration": "{CHILD_NAME} and {PET} smiled."}, "words, needs"),
-    (2, {"background_id": "cozy-cottage", "ending": False}, "ending background"),
+    (2, {"background_id": "space-station"}, "unknown background"),
+    (2, {"narration": GOOD.replace("{CHILD_NAME}", "Lila")}, "CHILD_NAME"),
+    (2, {"narration": GOOD.replace("gentle breeze", "scary monster")}, "scary"),
+    (2, {"choices": [{"word": w, "label": w} for w in ("lake", "hill", "cave")]}, "exactly 2"),
+    (2, {"choices": [{"word": "lake", "label": "Lake"}, {"word": "lake", "label": "Lake again"}]}, "different"),
+    (2, {"choices": [{"word": "Lake", "label": "Lake"}, {"word": "hill", "label": "Hill"}]}, "lowercase"),
+    (2, {"choices": [{"word": "lake", "label": "x" * 31}, {"word": "hill", "label": "Hill"}]}, "1-30"),
+    (2, {"narration": "{CHILD_NAME} and {PET} smiled."}, "words, needs"),
+    (4, {"narration": ENDING.replace("walked home", "walked on").replace("warm bed", "warm blanket")},
+     "home or bed"),
+    (3, {"background_id": "cozy-cottage", "ending": False}, "ending background"),
     (4, {"background_id": "riverside"}, "ending background"),
     (4, {"choices": [{"word": "lake", "label": "Lake"}, {"word": "hill", "label": "Hill"}]}, "no choices"),
 ])
@@ -100,35 +105,64 @@ def test_fallback_pages_pass_validation():
 
 def test_slow_generation_falls_back(monkeypatch):
     monkeypatch.setattr(adventure, "GENERATE_TIMEOUT", 0.05)
-    monkeypatch.setattr(adventure, "call_model", FakeWriter(delay={1: 1}))
+    monkeypatch.setattr(adventure, "call_model", FakeWriter(delay={2: 1}))
+    data, reason = asyncio.run(adventure.generate_page(2, [], "bunny", {"word": "zzz", "label": "Zzz"}))
+    assert "took over" in reason and data["narration"].startswith("The path led on")
+
+
+def test_page_one_is_the_opening_without_a_model_call(monkeypatch):
+    writer = FakeWriter()
+    monkeypatch.setattr(adventure, "call_model", writer)
     data, reason = asyncio.run(adventure.generate_page(1, [], "bunny", None))
-    assert "took over" in reason and data["background_id"] == "sunrise-meadow"
+    assert reason is None and data == adventure.FALLBACK_OPENING and writer.messages == []
+
+
+def test_page_three_message_asks_for_calm_last_places():
+    msg = adventure.page_message(3, [], "bunny", {"word": "lake", "label": "Lake"})
+    assert "LAST place before bedtime" in msg and "evening-friendly" in msg
+    end = adventure.page_message(4, [], "bunny", {"word": "library", "label": "Library"})
+    assert "go home and get cosy in bed" in end and "CHOSE: library" in end
+
+
+def test_fallback_ending_visits_the_chosen_place_then_bed():
+    data = adventure.fallback_page(4, {"word": "library"})
+    assert "last quiet look at the library" in data["narration"]
+    assert "bed" in data["narration"] and data["narration"].endswith("Goodnight.")
+    assert "look at the home" not in adventure.fallback_page(4, {"word": "home"})["narration"]
 
 
 # ---------- the mode over HTTP ----------
 
-def test_start_writes_page_one_in_the_scene_shape(monkeypatch):
+def test_start_shows_the_opening_and_prefetches_page_two(monkeypatch):
     writer = FakeWriter()
     monkeypatch.setattr(adventure, "call_model", writer)
     with TestClient(app) as c:
+        began = time.perf_counter()
         sess = start(c)
+        assert time.perf_counter() - began < 1  # no page-1 generation
+        s = SESSIONS[sess["session_id"]]
+        assert wait_for(lambda: {"a2-garden", "a2-forest"} <= set(s["scenes"]))
     scene = sess["scene"]
     assert scene["id"] == "a1" and scene["index"] == 1 and scene["total"] == 4
-    assert scene["narration"].startswith("Lila and her bunny walked")
+    assert scene["narration"].startswith("One bright morning, Lila and her bunny stepped into a sunny meadow")
+    assert not s["scenes"]["a1"]["fallback"]
+    assert len(writer.messages) == 2 and all("PAGE: 2 of 4" in m for m in writer.messages)
     assert scene["image_url"].endswith("/static/backgrounds/01-sunrise-meadow-watercolour-bg.jpg")
     assert scene["avatar_position"] == adventure.BACKGROUNDS["sunrise-meadow"]["avatar_position"]
-    assert scene["choices"] == [{"word": "garden", "label": "Go to the garden", "icon": None},
-                                {"word": "beach", "label": "Go to the beach", "icon": None}]
+    assert scene["choices"] == [{"word": "garden", "label": "Visit the flower garden", "icon": None},
+                                {"word": "forest", "label": "Follow the forest trail", "icon": None}]
     assert sess["intro"]["text"].startswith("Your own adventure. Hello Lila!")
-    assert "Lila" not in writer.messages[0]  # the child's name never goes to the model
-    assert "PAGE: 1 of 4" in writer.messages[0] and "sunrise-meadow" in writer.messages[0]
+    assert all("Lila" not in m for m in writer.messages)  # the child's name never goes to the model
+    assert "page 1 at sunrise-meadow" in writer.messages[0]
 
 
-def test_start_falls_back_to_the_meadow_opening():
+def test_failing_generator_still_starts_and_falls_back_on_page_two():
     with TestClient(app) as c:  # conftest: the generator fails
         sess = start(c)
-    assert sess["scene"]["id"] == "a1" and "sunny meadow" in sess["scene"]["narration"]
-    assert SESSIONS[sess["session_id"]]["scenes"]["a1"]["fallback"]
+        assert sess["scene"]["id"] == "a1" and "sunny meadow" in sess["scene"]["narration"]
+        r = turn(c, sess, "forest")
+    assert r["scene"]["id"] == "a2-forest" and r["scene"]["narration"].startswith("The path led on")
+    assert SESSIONS[sess["session_id"]]["scenes"]["a2-forest"]["fallback"]
 
 
 def test_prefetched_page_is_used_instantly(monkeypatch):
@@ -137,7 +171,7 @@ def test_prefetched_page_is_used_instantly(monkeypatch):
     with TestClient(app) as c:
         sess = start(c)
         s = SESSIONS[sess["session_id"]]
-        assert wait_for(lambda: {"a2-garden", "a2-beach"} <= set(s["scenes"]))  # both written in parallel
+        assert wait_for(lambda: {"a2-garden", "a2-forest"} <= set(s["scenes"]))  # both written in parallel
         assert sum("THE CHILD JUST CHOSE: garden" in m for m in writer.messages) == 1
         writer.delay = {2: 5}  # any new page-2 writing now would be slow
         began = time.perf_counter()
@@ -153,14 +187,15 @@ def test_slow_page_uses_a_fallback_page(monkeypatch):
     monkeypatch.setattr(adventure, "call_model", FakeWriter(delay={2: 1}))
     with TestClient(app) as c:
         sess = start(c)
-        r = turn(c, sess, "beach")
+        r = turn(c, sess, "forest")
         s = SESSIONS[sess["session_id"]]
-        assert r["scene"]["id"] == "a2-beach" and s["scenes"]["a2-beach"]["fallback"]
+        assert r["scene"]["id"] == "a2-forest" and s["scenes"]["a2-forest"]["fallback"]
         assert r["scene"]["narration"].startswith("The path led on")
-        assert s["scenes"]["a2-beach"]["background_id"] == "sandy-beach"  # matches the chosen word
-        assert r["scene"]["image_url"].endswith(adventure.BACKGROUNDS["sandy-beach"]["url"])
+        bg = adventure.matching_background("forest", 2)  # matches the chosen word
+        assert bg and s["scenes"]["a2-forest"]["background_id"] == bg
+        assert r["scene"]["image_url"].endswith(adventure.BACKGROUNDS[bg]["url"])
         time.sleep(1.2)  # the late page does not replace the one already shown
-        assert s["scenes"]["a2-beach"]["fallback"]
+        assert s["scenes"]["a2-forest"]["fallback"]
 
 
 def test_page_four_is_a_goodnight_ending(monkeypatch):
@@ -173,6 +208,7 @@ def test_page_four_is_a_goodnight_ending(monkeypatch):
         scene = r["scene"]
         assert scene["id"] == "a4-cottage" and scene["index"] == 4 and scene["total"] == 4
         assert scene["choices"] is None and scene["narration"].endswith("Goodnight.")
+        assert "home" in scene["narration"] and "bed" in scene["narration"]
         assert scene["challenge"]["prompt"] == "Can you whisper 'goodnight'?"
         assert scene["challenge"]["target_words"] == ["goodnight"]
         r = turn(c, sess, "goodnight")
@@ -241,9 +277,9 @@ def test_reply_without_write_page_is_an_invalid_page(monkeypatch):
     async def text_only(message):
         return SimpleNamespace(content=[SimpleNamespace(type="text", text="Once upon a time...")])
     monkeypatch.setattr(adventure, "call_model", text_only)
-    data, why = asyncio.run(adventure.generate_page(1, [], "bunny", None))
+    data, why = asyncio.run(adventure.generate_page(2, [], "bunny", {"word": "zzz", "label": "Zzz"}))
     assert why == "invalid page: write_page not called"
-    assert data["background_id"] == "sunrise-meadow"
+    assert data["narration"].startswith("The path led on")
 
 
 def test_api_error_message_is_logged(monkeypatch, caplog):
