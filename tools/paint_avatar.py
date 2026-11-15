@@ -161,14 +161,22 @@ def _paint_source(image_url: str, destination: Path, prompt: str = PROMPT) -> No
     _download_png(cutout["image"]["url"], destination)
 
 
+PROMPT_VERSION = "v2"  # bump when PROMPT or the traits sentence changes, so avatars repaint
+
+
 def cache_key(png_bytes: bytes, traits: dict | None = None) -> str:
-    """Without traits, the existing cache names are kept so unchanged avatars cost nothing.
-    With traits, they are part of the key, so the same drawing with new traits repaints."""
-    digest = hashlib.sha1(png_bytes)
-    cleaned = clean_traits(traits)
-    if cleaned:
-        digest.update(json.dumps(cleaned, sort_keys=True).encode())
-    return digest.hexdigest()[:16]
+    """With traits, the key comes from the traits (lowercase words) and the prompt version only, not
+    the PNG bytes: the profile screen and the story screen may render the same drawing slightly
+    differently but hit the same cache. Without traits, the PNG bytes are the key."""
+    cleaned = {k: v.lower() for k, v in clean_traits(traits).items()}
+    if not cleaned:
+        return hashlib.sha1(png_bytes).hexdigest()[:16]
+    return hashlib.sha1(f"{PROMPT_VERSION}:{json.dumps(cleaned, sort_keys=True)}".encode()).hexdigest()[:16]
+
+
+def has_fal_key() -> bool:
+    load_dotenv(ROOT / ".env")
+    return bool(os.getenv("FAL_KEY"))
 
 
 def paint(png_bytes: bytes, traits: dict | None = None) -> str | None:

@@ -103,6 +103,12 @@ def next_ids(scene: dict) -> list[str | None]:
     return [b["next"] for b in scene.get("branches", [])] or [scene.get("next")]
 
 
+def is_ending(scene: dict) -> bool:
+    """An ending (next: null, no branches): s5a, s5b, or the adventure's page 4. Its authored
+    goodnight challenge is always used, never an agent question."""
+    return not scene.get("branches") and scene.get("next") is None
+
+
 def path_depth(scene_id: str) -> int:
     """1-based position of a scene on the path from the start scene."""
     depth, frontier, seen = 1, [START], set()
@@ -346,10 +352,28 @@ def cached_avatar(png: bytes, traits: dict) -> str | None:
     return f"/static/avatars/{path.name}" if path.exists() else None
 
 
-async def paint_avatar_for(sess: dict, png: bytes, traits: dict) -> None:
-    """Paint in a worker thread; the PNG lives only in this task and is dropped when it ends.
-    paint() returns None when FAL_KEY is missing or painting fails, so avatar_url stays null."""
-    sess["avatar_path"] = await asyncio.to_thread(paint_avatar.paint, png, traits)
+# In-flight paint tasks by cache key: /avatar/paint and /session/start share one task per avatar.
+AVATAR_TASKS: dict[str, asyncio.Task] = {}
+
+
+def painting_task(png: bytes, traits: dict) -> asyncio.Task:
+    """The running paint task for this avatar, or a new one. Paints in a worker thread; the PNG lives
+    only in this task and is dropped when it ends. paint() returns None when FAL_KEY is missing or
+    painting fails (avatar_url stays null); a finished task is removed, so a later call can retry."""
+    key = paint_avatar.cache_key(png, traits)
+    task = AVATAR_TASKS.get(key)
+    if task is None or task.done() or task.get_loop() is not asyncio.get_running_loop():
+        task = AVATAR_TASKS[key] = asyncio.create_task(asyncio.to_thread(paint_avatar.paint, png, traits))
+        task.add_done_callback(lambda t: AVATAR_TASKS.pop(key, None) if AVATAR_TASKS.get(key) is t else None)
+    return task
+
+
+async def wait_for_avatar(sess: dict, task: asyncio.Task) -> None:
+    """The session's avatar_url appears in its next scene payload once the shared task finishes."""
+    try:
+        sess["avatar_path"] = await asyncio.shield(task)
+    except Exception as e:
+        log.warning("avatar painting failed: %s", type(e).__name__)
 
 
 def enter_scene(sess: dict, scene_id: str, challenge: dict | None = None) -> None:
@@ -363,7 +387,9 @@ def enter_scene(sess: dict, scene_id: str, challenge: dict | None = None) -> Non
     scene = scene_of(sess, scene_id)
     sess["scene_attempts"] = 0  # non-silent answers in this scene, for the first-try star
     fallback.enter_scene(sess, scene, narration_for(sess, scene), exclude=name_words(sess))
-    if challenge and fallback.decision_type(scene) is None:
+    if is_ending(scene):  # the authored goodnight; retries keep it (say-it, never another type)
+        sess["challenge"] = {**sess["challenge"], "fixed": True}
+    elif challenge and fallback.decision_type(scene) is None:
         sess["challenge"] = challenge
         sess["key_word"] = questions.key_word(challenge) or sess["key_word"]
         sess["question_types"][-1] = questions.qtype(challenge)
@@ -372,12 +398,14 @@ def enter_scene(sess: dict, scene_id: str, challenge: dict | None = None) -> Non
 def next_speaking_narrations(sess: dict, scene: dict) -> dict[str, str]:
     """Narration of each possible next scene whose question the agent sets (no authored decision),
     including every branch destination. None for adventures: their pages are written as the
-    child chooses, and page 4 has its authored goodnight challenge."""
+    child chooses. Endings (s5a, s5b, page 4) are never included: they keep their authored
+    goodnight challenge, so the agent never asks for them."""
     if sess.get("story") == "adventure":  # the chosen page's question phase, when already written
         return {nid: narration_for(sess, sess["scenes"][nid]) for nid in next_ids(scene)
-                if nid and nid != scene["id"] and nid in sess["scenes"] and sess["scenes"][nid].get("branches")}
+                if nid and nid != scene["id"] and nid in sess["scenes"] and sess["scenes"][nid].get("branches")
+                and not is_ending(sess["scenes"][nid])}
     return {nid: narration_for(sess, SCENES[nid]) for nid in next_ids(scene)
-            if nid and fallback.decision_type(SCENES[nid]) is None}
+            if nid and fallback.decision_type(SCENES[nid]) is None and not is_ending(SCENES[nid])}
 
 
 def pet_of(sess: dict) -> str:
@@ -497,6 +525,31 @@ async def ensure_page(sess: dict, parent: dict, next_id: str) -> None:
             page, next_id, adventure.fallback_page(page, branch), parent=parent["id"], fallback=True)
 
 
+@app.post("/avatar/paint")
+async def avatar_paint(request: Request):
+    """Pre-paint the avatar on the profile screen, so it is ready when the story starts. Returns at
+    once: ready (cached), painting (started now or already running) or skipped (PAINT_AVATAR=0,
+    no FAL_KEY, or an invalid drawing). The drawing is never stored or logged."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    avatar = body.get("avatar") if isinstance(body, dict) and isinstance(body.get("avatar"), dict) else {}
+    png = decode_avatar_png(avatar.get("image_png"))
+    skipped = {"status": "skipped", "avatar_url": None}
+    if not painting_enabled() or png is None:
+        return skipped
+    traits = avatar_traits(avatar)
+    cached = cached_avatar(png, traits)
+    if cached:
+        return {"status": "ready", "avatar_url": audio_url(request, cached)}
+    running = AVATAR_TASKS.get(paint_avatar.cache_key(png, traits))
+    if not (running and not running.done()) and not paint_avatar.has_fal_key():
+        return skipped
+    painting_task(png, traits)
+    return {"status": "painting", "avatar_url": None}
+
+
 @app.post("/session/start")
 async def session_start(request: Request):
     try:
@@ -530,8 +583,8 @@ async def session_start(request: Request):
     if avatar_png and painting_enabled():
         traits = avatar_traits(avatar)  # the drawing goes to paint(), never into the session
         sess["avatar_path"] = cached_avatar(avatar_png, traits)
-        if sess["avatar_path"] is None:
-            in_background(paint_avatar_for(sess, avatar_png, traits))  # never blocks the response
+        if sess["avatar_path"] is None:  # join the profile screen's painting, or start one
+            in_background(wait_for_avatar(sess, painting_task(avatar_png, traits)))  # never blocks
     in_background(tutor.warm_up())  # so the first /turn does not pay for a cold Anthropic connection
     is_adventure = body.get("story") == "adventure" and adventure_enabled()
     sess["story"] = "adventure" if is_adventure else "pip"

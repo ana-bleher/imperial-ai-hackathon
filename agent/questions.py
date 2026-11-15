@@ -203,6 +203,8 @@ def step_down(ch: dict, narration: str, key: str, level: int) -> dict:
     """The fallback's retry challenge: one step easier than `ch`. For say: the same challenge,
     or an easier one with a hint when the level went down."""
     qt = qtype(ch)
+    if ch.get("fixed"):  # an ending's goodnight: retries repeat it
+        return ch
     if qt == SAY:
         if level == ch["level"]:
             return ch
