@@ -157,3 +157,67 @@ def test_every_fallback_line_follows_the_rules():
     for d in misses:  # every hint or modelled answer names the word or answer
         named = d["challenge"]["target_words"] if d.get("challenge") else ["owl", "forest", "three", "sleepy", "quiet"]
         assert any(w in d["feedback"] for w in named), d["feedback"]
+
+
+# ---------- branch choices never sound like a right answer ----------
+
+BRANCH = {"id": "b", "narration": "A bridge and a boat.",
+          "decision": {"type": "branch_choice", "prompt": "Bridge or boat?"}, "branches": [
+              {"word": "bridge", "label": "Cross the bridge", "icon": "bridge", "next": "x"},
+              {"word": "boat", "label": "Take the boat", "icon": "boat", "next": "y"}]}
+
+
+@pytest.mark.parametrize("say", ["Yes, the bridge!", "Correct, the bridge!", "The bridge, that's right!",
+                                 "Right, the bridge!", "Well done, the bridge!", "Good job picking the bridge!",
+                                 "Great choice, the bridge!", "YES! The bridge!"])
+def test_right_answer_praise_on_a_choice_is_rejected(monkeypatch, say):
+    monkeypatch.setattr(tutor, "call_model", fake(("next_step", {"action": "advance", "say": say})))
+    d, meta = decide(session(BRANCH), "bridge", BRANCH)
+    assert "sounds like a right answer" in meta["fallback_reason"]
+    assert d["feedback"] == "The bridge it is, Mia! Off we go." and d["next_id"] == "x"
+
+
+@pytest.mark.parametrize("say", ["The bridge it is!", "Ooh, the bridge! Off we go.",
+                                 "Good idea, let's cross the bridge!"])
+def test_choice_lines_that_follow_the_pick_pass(monkeypatch, say):
+    monkeypatch.setattr(tutor, "call_model", fake(("next_step", {"action": "advance", "say": say})))
+    d, meta = decide(session(BRANCH), "bridge", BRANCH)
+    assert meta["source"] == "agent" and d["feedback"] == say
+
+
+def test_fallback_branch_lines_follow_the_rule():
+    s = session(BRANCH)
+    lines = [fb.turn(s, BRANCH, BRANCH["narration"], "bridge")["feedback"]]
+    s = session(BRANCH)
+    for said in ("dinosaur", "dinosaur", "no"):  # repeat options, propose, decline -> the other one
+        lines.append(fb.turn(s, BRANCH, BRANCH["narration"], said)["feedback"])
+    s = session(BRANCH)
+    for said in ("dinosaur", "dinosaur", "yes"):
+        lines.append(fb.turn(s, BRANCH, BRANCH["narration"], said)["feedback"])
+    assert lines[0] == "The bridge it is, Mia! Off we go."
+    assert lines[3] == "The boat it is, Mia! Off we go." and lines[-1] == "The bridge it is, Mia! Off we go."
+    for line in lines:
+        assert tutor.choice_praise(line) is None and tutor.banned_phrase(line) is None, line
+    nameless = {**fb.new_session_state()}
+    fb.enter_scene(nameless, BRANCH, BRANCH["narration"])
+    assert fb.turn(nameless, BRANCH, "", "boat")["feedback"] == "The boat it is! Off we go."
+
+
+def test_pip_bridge_over_http_uses_the_choice_line():
+    sess = client.post("/session/start", json={"child_name": "Tam", "pronouns": "he"}).json()
+    for said in ("lantern", "sun"):
+        client.post("/turn", json={"session_id": sess["session_id"], "transcript": said})
+    r = client.post("/turn", json={"session_id": sess["session_id"], "transcript": "bridge"}).json()
+    assert r["scene"]["id"] == "s4a" and r["feedback"] == "The bridge it is, Tam! Off we go."
+
+
+def test_praise_is_still_allowed_on_questions_and_speaking(monkeypatch):
+    monkeypatch.setattr(tutor, "call_model", fake(("next_step", {"action": "advance", "say": "Yes, the sun! Well done!"})))
+    d, meta = decide(session(QUESTION), "sun", QUESTION)
+    assert meta["source"] == "agent" and d["feedback"] == "Yes, the sun! Well done!"
+
+    monkeypatch.setattr(tutor, "call_model", fake(
+        ("assess", {"result": "hit", "reason": "Said it"}), ("set_difficulty", {"level": 1}),
+        ("next_step", {"action": "advance", "say": "Yes, that's right, forest! Good job!"})))
+    d, meta = decide(session(), "forest")
+    assert meta["source"] == "agent" and d["feedback"] == "Yes, that's right, forest! Good job!"

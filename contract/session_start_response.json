@@ -18,6 +18,7 @@
     "challenge": {"level": 1, "prompt": "Can you say 'afternoon'?", "target_words": ["afternoon"]},
     "challenge_audio_url": null,
     "choices": null,
-    "avatar_url": null
+    "avatar_url": null,
+    "phase": null
   }
 }

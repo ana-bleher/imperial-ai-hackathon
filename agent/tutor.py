@@ -51,6 +51,16 @@ BANNED_PHRASES = [
     ("little word", re.compile(r"\blittle\s+words?\b", re.I)),
 ]
 
+# On a branch choice there is no right or wrong: no praise that sounds like a correct answer.
+CHOICE_BANNED = [
+    ("yes", re.compile(r"\byes\b", re.I)),
+    ("correct", re.compile(r"\bcorrect\b", re.I)),
+    ("right", re.compile(r"\bright\b", re.I)),  # also "that's right"
+    ("well done", re.compile(r"\bwell\s+done\b", re.I)),
+    ("good job", re.compile(r"\bgood\s+job\b", re.I)),
+    ("great choice", re.compile(r"\bgreat\s+choice\b", re.I)),
+]
+
 _client = None
 
 
@@ -130,6 +140,14 @@ def leaks_child_words(text: str, transcript: str, vocab: set[str]) -> bool:
 def banned_phrase(text: str) -> str | None:
     """The first banned phrase in `text`, or None."""
     for name, pattern in BANNED_PHRASES:
+        if pattern.search(text or ""):
+            return name
+    return None
+
+
+def choice_praise(text: str) -> str | None:
+    """The first right-answer phrase in a branch-choice line, or None."""
+    for name, pattern in CHOICE_BANNED:
         if pattern.search(text or ""):
             return name
     return None
@@ -332,6 +350,10 @@ def apply_authored(scene, transcript, d, calls, vocab) -> dict:
     if leaks_child_words(say, transcript, vocab):
         raise InvalidAgentOutput("line repeats the child's own words")
     check_wording(say, "line")
+    if fallback.decision_type(scene) == fallback.BRANCH_CHOICE:
+        phrase = choice_praise(say)
+        if phrase:
+            raise InvalidAgentOutput(f"choice line sounds like a right answer ('{phrase}')")
     tail = authored_tail(scene, d)
     d["feedback"] = f"{say} {tail}".strip()
     note = calls.get("notify_parent")
