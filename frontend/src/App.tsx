@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import {
   demoChild,
   getProgress,
@@ -1227,6 +1227,13 @@ function CreateChild({
   const [step, setStep] = useState(0);
   const [name, setName] = useState(initialChild?.name ?? "");
   const [age, setAge] = useState(initialChild?.age ?? 5);
+  const [ageText, setAgeText] = useState(String(initialChild?.age ?? 5));
+  const commitAge = (text: string) => {
+    const n = Math.round(Number(text));
+    const clamped = Number.isFinite(n) && text.trim() !== "" ? Math.min(8, Math.max(3, n)) : age;
+    setAge(clamped);
+    setAgeText(String(clamped));
+  };
   const [traits, setTraits] = useState({
     pronouns: initialChild?.pronouns ?? ("they" as Child["pronouns"]),
     skin: initialChild?.skin ?? skinTones[2].value,
@@ -1315,18 +1322,25 @@ function CreateChild({
               </label>
               <fieldset>
                 <legend>How old are they?</legend>
-                <div className="age-options">
-                  {[4, 5, 6].map((n) => (
-                    <button
-                      type="button"
-                      className={age === n ? "selected" : ""}
-                      onClick={() => setAge(n)}
-                      key={n}
-                    >
-                      {n}
-                    </button>
-                  ))}
-                </div>
+                <label className="age-input">
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    maxLength={1}
+                    placeholder="5"
+                    value={ageText}
+                    aria-label="Age, 3 to 8"
+                    onChange={(e) => {
+                      e.target.value = e.target.value.replace(/[^0-9]/g, "");
+                      setAgeText(e.target.value);
+                      const n = Number(e.target.value);
+                      if (Number.isInteger(n) && n >= 3 && n <= 8) setAge(n);
+                    }}
+                    onBlur={(e) => commitAge(e.target.value)}
+                  />
+                  <span>years old · ages 3 to 8</span>
+                </label>
               </fieldset>
             </>
           )}
@@ -2610,12 +2624,11 @@ function StoryScene({
           </button>
           <p>
             {narrationSentences.map((sentence, index) => (
-              <span
-                className={activeSentence === index && phase === "narrating" ? "active" : ""}
-                key={`${sentence}-${index}`}
-              >
-                {sentence}{" "}
-              </span>
+              <Fragment key={`${sentence}-${index}`}>
+                <span className={activeSentence === index && phase === "narrating" ? "active" : ""}>
+                  {sentence.trim()}
+                </span>{" "}
+              </Fragment>
             ))}
           </p>
         </div>
@@ -3405,6 +3418,18 @@ function Dashboard({
                     <span className={`timeline-action timeline-action--${actionKey}`}>
                       {actionLabel}
                     </span>
+                    {entry.source && (
+                      <span
+                        className={`source-badge source-badge--${entry.source}`}
+                        title={
+                          entry.source === "agent"
+                            ? "The AI tutor (Claude) chose this step"
+                            : "A fixed story rule decided this step"
+                        }
+                      >
+                        {entry.source === "agent" ? "🤖 AI tutor" : "📏 Story rule"}
+                      </span>
+                    )}
                     <p>{entry.reason}</p>
                     {entry.question_reason && (
                       <p className="timeline-why">

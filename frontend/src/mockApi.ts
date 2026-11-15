@@ -72,6 +72,7 @@ export type ProgressResponse = {
     reason: string;
     question_type?: string; // which kind of question the agent chose (e.g. "count")
     question_reason?: string; // why it chose it
+    source?: "agent" | "rule"; // who decided this step: the Claude tutor or a fixed story rule
   }[];
   summary?: {
     stars_tonight: number;
