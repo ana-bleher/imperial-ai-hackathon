@@ -4,6 +4,13 @@
 
 Built for the Imperial AI Hackathon with a React/Figma Make frontend, a FastAPI backend, Claude, ElevenLabs, and fal.
 
+The child becomes a character in the story, with a familiar appearance and a voice-led experience designed for bedtime:
+
+- **ElevenLabs:** the team created a custom voice for young children and bedtime stories, combining soothing narration with interactive questions and encouragement. The voice is created in ElevenLabs outside this repository; the backend selects it through `VOICE_ID`.
+- **fal:** the child's chosen skin tone, hair, clothes, and pose guide a repaint that makes their avatar belong visually in the story's watercolour world. Background removal lets that same character appear across scenes. The current implementation targets one shared watercolour style.
+- **Figma Make:** used to build the React interface for avatar creation, the illustrated voice-driven storybook, and the parent progress dashboard.
+- **Claude:** assesses speaking answers, proposes adaptive challenges, and generates adventure pages, with code validating its decisions and providing fallbacks.
+
 ## Try the experience
 
 Run the app locally using the instructions below. Choose **Try the demo**, select a child, and open **Pip's Gentle Journey Home** or **Your own adventure**. The login form is a UI prototype, not authentication. “Try the demo” selects an example profile; it still attempts to use the backend.
@@ -92,7 +99,7 @@ Backend variables are loaded from the root `.env` or process environment. Store 
 |---|---|---|
 | `ANTHROPIC_API_KEY` | Claude tutoring and adventure generation; configured model: `claude-sonnet-5-5` | Tutor uses deterministic rules; adventures use prewritten fallback pages |
 | `ELEVENLABS_API_KEY` | STT with `scribe_v1` and TTS with `eleven_flash_v2_5` | Failed transcription becomes silence; missing speech files fall back to browser speech synthesis where supported |
-| `VOICE_ID` | Selects the ElevenLabs speaking voice | TTS can fail; use a voice accessible to the account |
+| `VOICE_ID` | Selects the team's custom bedtime voice created in ElevenLabs | TTS can fail; set this to the custom voice's ID in an account with access. Another accessible voice can be used for local development |
 | `FAL_KEY` | Avatar repainting with `fal-ai/flux-pro/kontext`, then background removal with `fal-ai/birefnet` | The drawn avatar remains available |
 | `PAINT_AVATAR` | Defaults to `1`; `0` disables painting | No new avatar painting requests |
 | `ADVENTURE` | Defaults to `1`; `0` maps adventure requests to Pip's story | Optional switch supported by code; not currently listed in `.env.example` |
@@ -194,6 +201,10 @@ This is a hackathon prototype: no real login, authorization, database, or cross-
 Some dashboard labels say “latest story” while the backend aggregates today's sessions or all retained logs. Frontend API types also lag the server in places, including nullable completion scenes and the `parent_notes` list. Real-time conversational voice agents and difficulty-based narration rewriting are not implemented. Optional painted Pip/pet assets are described in [characters/README.md](frontend/public/characters/README.md); the current folder supplies no PNGs, so drawn fallbacks are used.
 
 [CLAUDE.md](CLAUDE.md), [PROMPTS.md](PROMPTS.md), and [REVIEW.md](REVIEW.md) contain earlier plans and review findings. In particular, avatar painting, adventure generation, and live progress are now connected despite older MVP exclusions. Use the current source and tests when those documents disagree.
+
+## Future direction
+
+Bring the child's familiar avatar into a wider library of bedtime stories, adapting its appearance to each story's visual world while preserving the child's chosen identity. An online story archive and adaptation across different illustration styles are future work: the current app offers Pip's authored story and generated adventures using a local background catalogue and a shared watercolour style.
 
 ## Team, support, and license
 
