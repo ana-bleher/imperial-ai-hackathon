@@ -13,7 +13,7 @@ Rules (CLAUDE.md), by the scene's decision type:
 - branch_choice: any branch word picks that branch. Neither, first time: repeat the options.
   Neither, second time: propose one. Then "yes" takes it, "no" takes the other, anything else
   takes the proposed one. Never counted as a miss.
-- First silence in a scene is never a miss: "Shall we try together?"
+- First silence in a scene is never a miss: "Take your time!" and the question again.
 - Negations and self-corrections ("not sun... moon", "sun, no, moon", "sun... I mean moon"):
   judge the last word the child settled on (settled_words).
 
@@ -185,7 +185,7 @@ def make_challenge(narration: str, key_word: str, level: int, hint: bool = False
     phrase = phrase_for(narration, key_word, level)
     prompt = f"Can you say '{phrase}'?"
     if hint:
-        prompt = f"Let's try together. Listen: '{phrase}'. Can you say it?"
+        prompt = f"Listen: '{phrase}'. Now you try!"
     targets = words(phrase)
     return {"level": level, "prompt": prompt, "target_words": targets,
             "question_type": questions.SAY, "accept": targets,
@@ -298,10 +298,10 @@ def _scene_turn(state: dict, scene: dict, narration: str, transcript: str) -> di
     if not words(transcript):
         state["silences"] += 1
         if state["silences"] == 1:
-            line = f"Listen: '{phrase}'." if qt == questions.SAY else challenge["prompt"]
+            line = f"Listen: '{phrase}'. Now you try!" if qt == questions.SAY else challenge["prompt"]
             return _decision(result="silence", action="retry", retry=True, challenge=challenge,
-                             feedback=f"Shall we try together? {line}",
-                             reason="First silence: offered to try together, not counted as a miss")
+                             feedback=f"Take your time! {line}",
+                             reason="First silence: gentle encouragement, not counted as a miss")
         # Later silences count as a miss.
 
     state["tries"] += 1
@@ -337,11 +337,11 @@ def _scene_turn(state: dict, scene: dict, narration: str, transcript: str) -> di
     limit = max_attempts(scene)
     if state["tries"] >= limit:
         if qt == questions.OPEN:  # no single answer to model
-            feedback = "What great trying! Let's see what happens next."
+            feedback = "Good try! Let's see what happens next."
         elif qt == questions.SAY:
-            feedback = f"What great trying! It goes '{phrase}'. Let's see what happens next."
+            feedback = f"Good try! It's '{phrase}'. Let's see what happens next."
         else:  # model the answer
-            feedback = f"What great trying! It was {answer}. Let's see what happens next."
+            feedback = f"Good try! It's '{answer}'. Let's see what happens next."
         return _decision(result="miss", action="move_on", next_id=scene.get("next"),
                          feedback=feedback,
                          parent_note=f"Struggled with '{key}' - practise together",
@@ -351,16 +351,16 @@ def _scene_turn(state: dict, scene: dict, narration: str, transcript: str) -> di
     state["challenge"] = new
     if new is challenge:
         return _decision(result="miss", action="retry", retry=True, challenge=challenge,
-                         feedback=f"Good try! Listen: '{phrase}'. Your turn!",
+                         feedback=f"Good try! Listen: '{phrase}'. Now you try!",
                          reason=f"'{phrase}' not heard (try {state['tries']} of {limit}); modelled it again")
     if qt == questions.SAY:
         target = " ".join(new["target_words"])
         return _decision(result="miss", action="retry_with_hint", retry=True, challenge=new,
-                         feedback=f"Nice try! It starts with '{target[0]}'. Listen: '{target}'. Your turn!",
+                         feedback=f"Nice try! Listen: '{target}'. Now you try!",
                          reason=f"Two misses in a row; easier level {state['level']} with a hint")
     new_type = questions.qtype(new)
-    feedback = ("Good thinking! Let's say it together." if new_type == questions.SAY
-                else "Good thinking! Here's a little help.")
+    # The hint always names the answer: the say-it prompt, or a choice that contains it.
+    feedback = f"Ooh, close! {new['prompt']}" if new_type == questions.SAY else f"Nice try! {new['prompt']}"
     return _decision(result="miss", action="retry_with_hint", retry=True, challenge=new,
                      feedback=feedback,
                      reason=f"{qt} question not answered (try {state['tries']} of {limit}); "
@@ -380,7 +380,7 @@ def _question_turn(state: dict, scene: dict, transcript: str) -> dict:
         state["silences"] += 1
         if state["silences"] == 1:
             return _decision(result="silence", action="retry", retry=True, challenge=challenge,
-                             feedback="Shall we try together? " + dec["prompt"],
+                             feedback="Take your time! " + dec["prompt"],
                              reason="First silence: repeated the question, not counted as a miss")
 
     state["tries"] += 1
@@ -393,14 +393,14 @@ def _question_turn(state: dict, scene: dict, transcript: str) -> dict:
     limit = max_attempts(scene)
     if state["tries"] >= limit:
         return _decision(result="miss", action="move_on", next_id=scene.get("next"), targets=[correct],
-                         feedback=f"What great thinking! It's the {correct}. Let's see what happens next.",
+                         feedback=f"Good try! It's the {correct}. Let's see what happens next.",
                          parent_note=f"Needed help with: {dec['prompt']} (answer: '{correct}') - talk about it together",
                          reason=f"Not answered after {limit} tries; revealed '{correct}' and moved on")
 
     hint = dec.get("hint") if dec.get("on_incorrect", "retry_with_hint") == "retry_with_hint" else None
     return _decision(result="miss", action="retry_with_hint" if hint else "retry", retry=True,
                      challenge=challenge, targets=[correct],
-                     feedback=f"Good thinking! {hint or dec['prompt']}",
+                     feedback=f"Good try! {hint or dec['prompt']}",
                      reason=f"Answer was not '{correct}' (try {state['tries']} of {limit}); "
                             + ("gave the authored hint" if hint else "asked again"))
 
@@ -427,7 +427,7 @@ def _branch_turn(state: dict, scene: dict, transcript: str) -> dict:
     if not said and state["silences"] == 0:
         state["silences"] += 1
         return _decision(result="silence", action="retry", retry=True, challenge=state["challenge"],
-                         feedback="Shall we try together? " + state["challenge"]["prompt"],
+                         feedback="Take your time! " + state["challenge"]["prompt"],
                          reason="First silence: repeated the options, not counted as a miss")
 
     if state["proposed"]:
