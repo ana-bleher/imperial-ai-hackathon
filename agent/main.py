@@ -410,6 +410,18 @@ def clean_name(value) -> str:
     return name or "Friend"
 
 
+def clean_age(value) -> int | None:
+    """A number clamped to 3-8; anything else (text, booleans, missing) is null."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        if isinstance(value, str) and value.strip().isdigit():
+            value = int(value.strip())
+        else:
+            return None
+    if value != value:  # NaN
+        return None
+    return int(max(3, min(8, value)))
+
+
 def clean_practice_words(value) -> list[str]:
     """Parent focus words and recent tricky words: letters only, lowercased, at most 5."""
     if not isinstance(value, list):
@@ -501,7 +513,7 @@ async def session_start(request: Request):
     child_id = f"{re.sub(r'[^a-z0-9]+', '-', name.lower()).strip('-') or 'child'}-1"
     child = {
         "child_name": name,
-        "age": body.get("age"),
+        "age": clean_age(body.get("age")),
         "pronouns": body.get("pronouns", "they"),
         "avatar": avatar,
     }
@@ -646,6 +658,7 @@ async def turn(request: Request):
     asked = None if story_complete else sess["challenge"]  # the question the child hears next
     entry["question_type"] = asked and questions.qtype(asked)
     entry["question_reason"] = asked and asked.get("reason")
+    sess["last_feedback"] = d["feedback"]  # the agent may not say the same retry line twice in a row
     entry["turn_ms"] = round((time.perf_counter() - started) * 1000)
     sess["log"].append(entry)
     log.info("turn %s scene=%s result=%s action=%s source=%s agent_ms=%s turn_ms=%s%s",

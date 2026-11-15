@@ -86,6 +86,28 @@ def settled_words(transcript: str) -> list[str]:
     return out or said
 
 
+DONT_KNOW = ("i don't know", "i dont know", "don't know", "dont know", "i do not know", "dunno",
+             "no idea", "not sure")
+OFF_TOPIC_MIN_WORDS = 3  # shorter unmatched answers are ordinary wrong answers
+
+
+def dont_know(transcript: str) -> bool:
+    text = " " + " ".join(words(transcript)) + " "
+    return any(f" {p} " in text for p in DONT_KNOW)
+
+
+def off_topic(transcript: str, candidates: list[str]) -> bool:
+    """A longer answer with nothing like any target, option or answer ("I like dinosaurs")."""
+    said = settled_words(transcript)
+    if len(words(transcript)) < OFF_TOPIC_MIN_WORDS or dont_know(transcript) or set(said) & (YES | NO):
+        return False
+    return not any(heard(c, said) for c in candidates)
+
+
+def sentences(text: str) -> int:
+    return len(re.findall(r"[.!?]+(?=\s|$)", text.strip())) or 1
+
+
 def similar(target: str, said: str) -> bool:
     """Generous match: exact, or close enough for words of 4+ letters ("fowest" ~ "forest")."""
     if target == said:
@@ -305,7 +327,12 @@ def _scene_turn(state: dict, scene: dict, narration: str, transcript: str) -> di
         # Later silences count as a miss.
 
     state["tries"] += 1
-    if questions.is_answer(challenge, transcript):
+    unsure = dont_know(transcript)
+    candidates = list(challenge["target_words"]) + list(challenge.get("accept") or [])
+    if qt == questions.COUNT:
+        candidates += list(questions.NUMBERS) + list(questions.DIGITS)
+    stray = qt != questions.OPEN and off_topic(transcript, candidates)
+    if not unsure and questions.is_answer(challenge, transcript):
         state["hit_streak"] += 1
         state["miss_streak"] = 0
         if qt == questions.SAY:
@@ -347,8 +374,17 @@ def _scene_turn(state: dict, scene: dict, narration: str, transcript: str) -> di
                          parent_note=f"Struggled with '{key}' - practise together",
                          reason=f"'{key}' not heard after {limit} tries; moved on")
 
+    if stray:  # off-topic: acknowledge kindly and ask the same question again (no "nice try")
+        return _decision(result="miss", action="retry", retry=True, challenge=challenge,
+                         feedback=f"That sounds fun! {challenge['prompt']}",
+                         reason=f"Off-topic answer (try {state['tries']} of {limit}); asked the same question again")
     new = questions.step_down(challenge, narration, key, state["level"])
     state["challenge"] = new
+    if unsure:  # the help line carries the clue or the easier question itself
+        return _decision(result="miss", action="retry_with_hint", retry=True, challenge=new,
+                         feedback=f"That's okay! {new['prompt']}",
+                         reason=f"Child was not sure (try {state['tries']} of {limit}); "
+                                f"gave {questions.qtype(new)} help")
     if new is challenge:
         return _decision(result="miss", action="retry", retry=True, challenge=challenge,
                          feedback=f"Good try! Listen: '{phrase}'. Now you try!",
@@ -385,7 +421,7 @@ def _question_turn(state: dict, scene: dict, transcript: str) -> dict:
 
     state["tries"] += 1
     settled = settled_words(transcript)
-    if heard(correct, settled) and not any(heard(o, settled) for o in others):
+    if not dont_know(transcript) and heard(correct, settled) and not any(heard(o, settled) for o in others):
         return _decision(result="hit", action="advance", next_id=scene.get("next"), targets=[correct],
                          feedback=f"Yes, the {correct}! Well done!",
                          reason=f"Answered '{correct}' correctly on try {state['tries']}")
@@ -393,16 +429,29 @@ def _question_turn(state: dict, scene: dict, transcript: str) -> dict:
     limit = max_attempts(scene)
     if state["tries"] >= limit:
         return _decision(result="miss", action="move_on", next_id=scene.get("next"), targets=[correct],
-                         feedback=f"Good try! It's the {correct}. Let's see what happens next.",
+                         feedback=f"Good try! It's the {correct}.", tail=f"It's the {correct}.",
                          parent_note=f"Needed help with: {dec['prompt']} (answer: '{correct}') - talk about it together",
                          reason=f"Not answered after {limit} tries; revealed '{correct}' and moved on")
 
-    hint = dec.get("hint") if dec.get("on_incorrect", "retry_with_hint") == "retry_with_hint" else None
-    return _decision(result="miss", action="retry_with_hint" if hint else "retry", retry=True,
-                     challenge=challenge, targets=[correct],
-                     feedback=f"Good try! {hint or dec['prompt']}",
+    if off_topic(transcript, [correct, *others]):  # acknowledge, then the same question
+        return _decision(result="miss", action="retry", retry=True, challenge=challenge, targets=[correct],
+                         feedback=f"That sounds fun! {dec['prompt']}", tail=dec["prompt"], off_topic=True,
+                         reason=f"Off-topic answer (try {state['tries']} of {limit}); asked the question again")
+    hinted = dec.get("on_incorrect", "retry_with_hint") == "retry_with_hint"
+    tail = quiz_hint(dec, state["tries"]) if hinted else dec["prompt"]
+    lead = "That's okay!" if dont_know(transcript) else ("Good try!" if state["tries"] == 1 else "Ooh, close!")
+    return _decision(result="miss", action="retry_with_hint" if hinted else "retry", retry=True,
+                     challenge=challenge, targets=[correct], feedback=f"{lead} {tail}", tail=tail,
                      reason=f"Answer was not '{correct}' (try {state['tries']} of {limit}); "
-                            + ("gave the authored hint" if hint else "asked again"))
+                            + (f"gave hint {state['tries']}" if hinted else "asked again"))
+
+
+def quiz_hint(dec: dict, tries: int) -> str:
+    """One short sentence. First miss: the authored hint's first sentence. Later misses: a different,
+    simpler hint that names the answer."""
+    if tries <= 1 and dec.get("hint"):
+        return re.split(r"(?<=[.!?])\s+", dec["hint"].strip())[0]
+    return f"Can you say '{dec['correct_word']}'?"
 
 
 def _match_branch(scene: dict, said: list[str]) -> dict | None:
@@ -440,9 +489,12 @@ def _branch_turn(state: dict, scene: dict, transcript: str) -> dict:
         proposed = next(br for br in branches if br["word"] == state["proposed"])
         other = next(br for br in branches if br is not proposed)
         declined = bool(set(said) & NO and not set(said) & YES)
+        accepted = bool(set(said) & YES) and not declined
         pick = other if declined else proposed
+        # Only an accepted proposal is the child's choice; otherwise code picked: "Let's try the boat!"
+        line = choice_line(state, pick["word"]) if accepted else f"Let's try the {pick['word']}!"
         return _decision(result="hit", log_result="choice", action="advance", next_id=pick["next"],
-                         feedback=choice_line(state, pick["word"]), chosen=pick["word"],
+                         feedback=line, chosen=pick["word"], chosen_by_child=accepted,
                          reason=f"Proposed '{proposed['word']}'; "
                                 + (f"child said no, took '{pick['word']}'" if declined else "went with it"))
 
@@ -452,7 +504,10 @@ def _branch_turn(state: dict, scene: dict, transcript: str) -> dict:
         ch = branch_challenge(scene)
         state["challenge"] = ch
         return _decision(result="miss", log_result="no_choice", action="retry", retry=True,
-                         challenge=ch, feedback=f"Ooh, which way? {ch['prompt']}",
+                         challenge=ch, feedback=("That's okay! " if dont_know(transcript) else
+                                                 "That sounds fun! " if off_topic(transcript, [
+                                                     b["word"] for b in branches]) else
+                                                 "Ooh, which way? ") + ch["prompt"],
                          reason="No branch word heard; repeated the options (not a miss)")
 
     proposed = branches[0]

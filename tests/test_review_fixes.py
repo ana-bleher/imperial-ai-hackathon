@@ -165,7 +165,7 @@ def test_agent_question_repeating_child_words_is_rejected(monkeypatch):
                          "question_type": "say", "accept": [], "reason": "Easier word"})]])
     monkeypatch.setattr(tutor, "call_model", agent)
     vocab = set(fb.words(json.dumps(scene))) | {"mia"}
-    d, meta = asyncio.run(tutor.decide(s, scene, scene["narration"], "my name is zorblax",
+    d, meta = asyncio.run(tutor.decide(s, scene, scene["narration"], "zorblax",
                                        next_narration=None, name_words={"mia"}, vocab=vocab))
     assert meta["source"] == "fallback" and "question repeats" in meta["fallback_reason"]
     assert "zorblax" not in json.dumps(d).lower()
