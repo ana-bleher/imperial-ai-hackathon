@@ -4484,3 +4484,72 @@ html.night .timeline-why b { color: #f2c14e; }
 .guide-face.guide-face--pip:before,
 .guide-face.guide-face--pip:after { display: none; }
 .guide-face.guide-face--pip svg { width: 100%; height: 100%; display: block; }
+
+/* Adventure choices have no icon: show the word big and friendly */
+.decision-cards-visible button .choice-label-only {
+  font-family: "Nunito", sans-serif;
+  font-size: 22px;
+  font-weight: 800;
+  padding: 18px 8px;
+}
+
+/* ---------- Thought bubbles at a choice: picture where each option leads ---------- */
+.thought-bubble {
+  position: absolute;
+  z-index: 8;
+  transform: translate(-50%, -100%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 8px 10px;
+  border: 2px solid rgba(27, 35, 64, 0.12);
+  border-radius: 46% 54% 50% 50% / 55% 50% 50% 45%;
+  background: #fffdf7;
+  box-shadow: 0 10px 24px rgba(27, 35, 64, 0.22);
+  cursor: pointer;
+  animation: bubble-in 0.6s cubic-bezier(0.2, 0.9, 0.3, 1.3) both, bubble-float 3.6s ease-in-out 0.6s infinite;
+}
+.thought-bubble--right { animation-delay: 0.15s, 0.9s; }
+.thought-bubble:hover:not(:disabled) { box-shadow: 0 0 0 4px rgba(242, 193, 78, 0.7), 0 12px 28px rgba(27, 35, 64, 0.25); }
+.thought-bubble:disabled { opacity: 0.6; }
+.thought-bubble-picture {
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  border-radius: 40%;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  background: #f4ead6;
+}
+.thought-bubble-picture img { width: 100%; height: 100%; object-fit: cover; }
+.thought-bubble-picture .choice-icon-emoji { font-size: 40px; }
+.thought-bubble-picture svg { width: 80%; height: auto; }
+.thought-bubble-word { font-family: "Nunito", sans-serif; font-weight: 800; font-size: 18px; color: #1b2340; padding: 6px; }
+.thought-bubble-label {
+  font-family: "Nunito", sans-serif;
+  font-weight: 800;
+  font-size: 14px;
+  color: #1b2340;
+  line-height: 1.1;
+  text-align: center;
+}
+/* the little trail of thought circles down towards the child's head */
+.thought-dot {
+  position: absolute;
+  border-radius: 50%;
+  background: #fffdf7;
+  border: 2px solid rgba(27, 35, 64, 0.12);
+  box-shadow: 0 4px 10px rgba(27, 35, 64, 0.18);
+}
+.thought-dot--big { width: 16px; height: 16px; bottom: -14px; }
+.thought-dot--small { width: 9px; height: 9px; bottom: -28px; }
+.thought-bubble--left .thought-dot--big { right: 18%; }
+.thought-bubble--left .thought-dot--small { right: 8%; }
+.thought-bubble--right .thought-dot--big { left: 18%; }
+.thought-bubble--right .thought-dot--small { left: 8%; }
+@keyframes bubble-in { from { opacity: 0; transform: translate(-50%, -90%) scale(0.6); } to { opacity: 1; transform: translate(-50%, -100%) scale(1); } }
+@keyframes bubble-float { 0%, 100% { margin-top: 0; } 50% { margin-top: -6px; } }
+@media (prefers-reduced-motion: reduce) { .thought-bubble { animation: none; } }
+
+.thought-bubble-word { font-size: 17px; padding: 14px 10px; text-align: center; line-height: 1.15; }

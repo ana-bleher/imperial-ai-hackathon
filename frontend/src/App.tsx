@@ -333,7 +333,7 @@ function words(part: DayPart = dayPart()) {
 }
 
 // ---------- Each child's own reading history, kept on this device (survives backend redeploys)
-type StoryRecord = { at: string; stars: number; words: string[]; help: string[]; note?: string };
+type StoryRecord = { at: string; stars: number; words: string[]; help: string[]; note?: string; title?: string };
 const historyKey = (childId: number) => `speakaboo-history-${childId}`;
 function loadHistory(childId: number): StoryRecord[] {
   try {
@@ -349,8 +349,8 @@ function saveHistory(childId: number, records: StoryRecord[]) {
     /* storage unavailable */
   }
 }
-function recordStory(childId: number, stars: number) {
-  saveHistory(childId, [...loadHistory(childId), { at: new Date().toISOString(), stars, words: [], help: [] }]);
+function recordStory(childId: number, stars: number, title?: string) {
+  saveHistory(childId, [...loadHistory(childId), { at: new Date().toISOString(), stars, words: [], help: [], title }]);
 }
 function addSummaryToLatest(childId: number, summary: NonNullable<ProgressResponse["summary"]>) {
   const records = loadHistory(childId);
@@ -386,6 +386,24 @@ function practiceWords(childId: number): string[] {
     .flatMap((record) => record.help);
   return [...new Set([...loadFocusWords(childId), ...recentTricky].map((w) => w.toLowerCase().trim()).filter(Boolean))].slice(0, 5);
 }
+
+// Previews of where Pip's branch choice leads (the backend can also send choice.image_url).
+const CHOICE_PREVIEWS: Record<string, string> = {
+  bridge: "/static/scenes/s4a.jpg",
+  boat: "/static/scenes/s4b.jpg",
+};
+// A page is at its choice when it has options and is not in its "question" phase (adventure pages
+// ask a learning question first, then show the two choices on the same page).
+const isChoicePhase = (page: Scene | null | undefined) => Boolean(page?.choices) && page?.phase !== "question";
+
+const absoluteUrl = (url: string) => (url.startsWith("/") ? `${API_URL}${url}` : url);
+
+// The stories on the shelf. "adventure" pages are written live by the backend, one per choice.
+type StoryKind = "pip" | "adventure";
+const STORIES: Record<StoryKind, { title: string; cover: string }> = {
+  pip: { title: "Pip's Gentle Journey Home", cover: "/static/scenes/s1.jpg" },
+  adventure: { title: "Your own adventure", cover: "/static/backgrounds/19-enchanted-treehouse-watercolour-bg.jpg" },
+};
 
 // Where each child stopped reading, so the bookshelf can offer "Continue".
 const resumeKey = (childId: number) => `speakaboo-resume-${childId}`;
@@ -1446,7 +1464,8 @@ function ChoiceIllustration({ type }: { type: "bridge" | "boat" | "lantern" | "o
   );
 }
 
-function ChoiceIcon({ icon }: { icon: string }) {
+function ChoiceIcon({ icon }: { icon: string | null }) {
+  if (!icon) return null; // adventure choices come without icons: the label alone is shown
   if (/^https?:\/\//i.test(icon)) {
     return <img className="choice-icon-image" src={icon} alt="" />;
   }
@@ -1490,11 +1509,13 @@ function StoryScene({
   onFinish: onStoryFinished,
   onExit,
   resumeSceneId = null,
+  story = "pip",
 }: {
   child: Child;
   onFinish: (stars: number) => void;
   onExit: () => void;
   resumeSceneId?: string | null;
+  story?: StoryKind;
 }) {
   const [stars, setStars] = useState(0);
   const starsRef = useRef(0);
@@ -1506,7 +1527,7 @@ function StoryScene({
   const [closingBook, setClosingBook] = useState(false);
   const onFinish = () => {
     if (closingBook) return;
-    savePage(child.id, null); // story finished: next time starts from the beginning
+    if (story === "pip") savePage(child.id, null); // story finished: next time starts from the beginning
     setClosingBook(true); // the book closes with "The end", then we go back to the start
     window.setTimeout(() => onStoryFinished(starsRef.current), 4200);
   };
@@ -1560,7 +1581,8 @@ function StoryScene({
 
   const setCurrentScene = (nextScene: Scene) => {
     if (nextScene.avatar_url) setPaintedAvatar(nextScene.avatar_url);
-    savePage(child.id, nextScene.index === nextScene.total ? null : nextScene.id);
+    // only Pip's story can be continued later (adventure pages exist for one session only)
+    if (story === "pip") savePage(child.id, nextScene.index === nextScene.total ? null : nextScene.id);
     const history = historyRef.current;
     if (history[history.length - 1]?.id !== nextScene.id) history.push(nextScene);
     else history[history.length - 1] = nextScene;
@@ -1836,7 +1858,7 @@ function StoryScene({
       setCurrentScene(nextScene);
       setPendingScene(null);
       playAudioOrSpeech(response.feedback, response.feedback_audio_url, () =>
-        nextScene.choices ? askDecision(nextScene) : askChallenge(nextScene),
+        isChoicePhase(nextScene) ? askDecision(nextScene) : askChallenge(nextScene),
       );
       return;
     }
@@ -1990,7 +2012,7 @@ function StoryScene({
     setShowChoices(false);
     setPhase("narrating");
     playAudioOrSpeech(decisionScene.challenge.prompt, decisionScene.challenge_audio_url ?? null, () => {
-      choiceTimerRef.current = window.setTimeout(() => setShowChoices(true), 4000);
+      choiceTimerRef.current = window.setTimeout(() => setShowChoices(true), decisionScene.phase === "choice" ? 0 : 4000);
       startListening("decision");
     });
   };
@@ -2025,7 +2047,7 @@ function StoryScene({
     window.setTimeout(() => {
       if (run !== speechRunRef.current) return; // something else started in the meantime
       playNarration(nextScene, () => {
-        if (nextScene.choices) askDecision(nextScene);
+        if (isChoicePhase(nextScene)) askDecision(nextScene);
         else askChallenge(nextScene);
       });
     }, 1000);
@@ -2048,7 +2070,8 @@ function StoryScene({
             pet: child.friend,
             ...(imagePng ? { image_png: imagePng } : {}),
           },
-          ...(resumeSceneId ? { resume_scene_id: resumeSceneId } : {}),
+          ...(story === "adventure" ? { story: "adventure" as const } : {}),
+          ...(story === "pip" && resumeSceneId ? { resume_scene_id: resumeSceneId } : {}),
           practice_words: practiceWords(child.id),
         });
       })();
@@ -2156,7 +2179,7 @@ function StoryScene({
       stopAllAudio();
       audioRef.current?.pause();
       setActiveSentence(null);
-      if (current.choices) askDecision(current);
+      if (isChoicePhase(current)) askDecision(current);
       else askChallenge(current);
       return;
     }
@@ -2173,7 +2196,7 @@ function StoryScene({
     }
 
     // 3. At a choice the story can't guess the path: show the picture cards.
-    if (current.choices) {
+    if (isChoicePhase(current)) {
       clearChoiceTimer();
       setShowChoices(true);
       setFeedback("miss");
@@ -2240,7 +2263,7 @@ function StoryScene({
     setReviewIndex(null);
     const current = sceneRef.current;
     if (!current) return;
-    if (current.choices) askDecision(current);
+    if (isChoicePhase(current)) askDecision(current);
     else askChallenge(current);
   };
 
@@ -2326,7 +2349,7 @@ function StoryScene({
     };
   }, []);
 
-  const atDecision = Boolean(scene?.choices);
+  const atDecision = isChoicePhase(scene);
   const isFinalScene = scene?.index === scene?.total;
 
   if (!started) {
@@ -2335,11 +2358,11 @@ function StoryScene({
         <div ref={avatarSnapshotRef} className="avatar-snapshot" aria-hidden="true">
           <Avatar child={child} />
         </div>
-        <img className="cover-art" src={`${API_URL}/static/scenes/s1.jpg`} alt="" />
+        <img className="cover-art" src={`${API_URL}${STORIES[story].cover}`} alt="" />
         <StarField count={84} />
         <div className="story-start-content book-cover">
           <small className="cover-eyebrow">{words().storyLabel}</small>
-          <h1>Pip's Gentle Journey Home</h1>
+          <h1>{STORIES[story].title}</h1>
           <div className="cover-pip" aria-hidden="true">
             <Pip />
           </div>
@@ -2481,6 +2504,39 @@ function StoryScene({
           );
         })()}
 
+        {/* At a choice: two thought bubbles above the child show where each option leads */}
+        {!reviewing && isChoicePhase(viewScene) && viewScene.choices?.length === 2 && phase !== "narrating" && (() => {
+          const spot: { x: number; y: number; scale: number } =
+            STAND_SPOTS[viewScene.id] ?? viewScene.avatar_position;
+          const headY = Math.max(0.2, spot.y - spot.scale - 0.02);
+          return (viewScene.choices ?? []).map((choice, index) => {
+            const preview = choice.image_url ?? CHOICE_PREVIEWS[choice.word.toLowerCase()];
+            const x = Math.min(0.85, Math.max(0.15, spot.x + (index === 0 ? -0.13 : 0.13)));
+            return (
+              <button
+                key={choice.word}
+                className={`thought-bubble thought-bubble--${index === 0 ? "left" : "right"}`}
+                style={{ left: atX(x), top: atY(headY), width: ofW(0.19) }}
+                onClick={() => void choose(index === 0 ? "A" : "B")}
+                disabled={sending}
+                aria-label={choice.label}
+              >
+                {preview || choice.icon ? (
+                  <>
+                    <span className="thought-bubble-picture">
+                      {preview ? <img src={absoluteUrl(preview)} alt="" /> : <ChoiceIcon icon={choice.icon} />}
+                    </span>
+                  </>
+                ) : (
+                  // no picture yet: a word-only bubble (no empty frame that looks like a placeholder)
+                  <span className="thought-bubble-word">✨ {choice.label}</span>
+                )}
+                <i className="thought-dot thought-dot--big" aria-hidden="true" />
+                <i className="thought-dot thought-dot--small" aria-hidden="true" />
+              </button>
+            );
+          });
+        })()}
         {closingBook && (
           <div className="closing-book" aria-live="polite">
             <div className="closing-book-inner">
@@ -2499,7 +2555,7 @@ function StoryScene({
           <div className="title-card" aria-live="polite">
             <span className="title-card-moon" aria-hidden="true">🌙</span>
             <small>{words().storyLabel}</small>
-            <h1>Pip's Gentle Journey Home</h1>
+            <h1>{STORIES[story].title}</h1>
             <p>Are you ready for your story, {child.name}?</p>
           </div>
         )}
@@ -2596,7 +2652,7 @@ function StoryScene({
                       onClick={() => void choose(choiceIndex === 0 ? "A" : "B")}
                     >
                       <ChoiceIcon icon={choice.icon} />
-                      <span>{choice.label}</span>
+                      <span className={choice.icon ? "" : "choice-label-only"}>{choice.label}</span>
                     </button>
                   ))}
                 </div>
@@ -2733,8 +2789,9 @@ function StoryScene({
   );
 }
 
-const SHELF = [
-  { title: "Pip's Gentle Journey Home", cover: "/static/scenes/s1.jpg", locked: false },
+const SHELF: { title: string; cover: string; locked: boolean; story?: StoryKind }[] = [
+  { title: "Pip's Gentle Journey Home", cover: "/static/scenes/s1.jpg", locked: false, story: "pip" },
+  { title: "Your own adventure", cover: STORIES.adventure.cover, locked: false, story: "adventure" },
   { title: "The Sleepy Lighthouse", cover: "/static/backgrounds/11-lighthouse-cliff-watercolour-bg.jpg", locked: true },
   { title: "Moon Garden Picnic", cover: "/static/backgrounds/02-wildflower-garden-watercolour-bg.jpg", locked: true },
   { title: "Owl's Night Choir", cover: "/static/backgrounds/04-moonlit-woodland-clearing-watercolour-bg.jpg", locked: true },
@@ -2746,7 +2803,7 @@ function Library({
   onBack,
 }: {
   child: Child;
-  onRead: (resumeSceneId: string | null) => void;
+  onRead: (resumeSceneId: string | null, story: StoryKind) => void;
   onBack: () => void;
 }) {
   const resume = savedPage(child.id);
@@ -2791,19 +2848,27 @@ function Library({
                   {book.locked ? (
                     <small className="book-soon">Unlocks soon</small>
                   ) : (
+                    book.story === "adventure" ? (
+                      <div className="book-actions">
+                        <button className="primary-button compact" onClick={() => onRead(null, "adventure")}>
+                          Start an adventure
+                        </button>
+                      </div>
+                    ) : (
                     <div className="book-actions">
                       {resume && (
-                        <button className="primary-button compact" onClick={() => onRead(resume)}>
+                        <button className="primary-button compact" onClick={() => onRead(resume, "pip")}>
                           Continue
                         </button>
                       )}
                       <button
                         className={resume ? "secondary-button compact" : "primary-button compact"}
-                        onClick={() => onRead(null)}
+                        onClick={() => onRead(null, "pip")}
                       >
                         {resume ? "Start again" : "Read"}
                       </button>
                     </div>
+                    )
                   )}
                 </article>
               ))}
@@ -3034,7 +3099,7 @@ function Dashboard({
           .map((record) => (
             <li key={record.at}>
               <span>{new Date(record.at).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" })}</span>
-              <span>Pip’s Gentle Journey Home</span>
+              <span>{record.title ?? "Pip’s Gentle Journey Home"}</span>
               <b>⭐ {record.stars}</b>
             </li>
           ))}
@@ -3362,6 +3427,7 @@ export default function App() {
   const [editingChild, setEditingChild] = useState<Child | undefined>();
   const [tonightStars, setTonightStars] = useState(0);
   const [resumeFrom, setResumeFrom] = useState<string | null>(null);
+  const [storyKind, setStoryKind] = useState<StoryKind>("pip");
   const activeChild = useMemo(
     () => children.find((child) => child.id === activeId) ?? children[0],
     [children, activeId],
@@ -3441,8 +3507,9 @@ export default function App() {
       <Library
         child={activeChild}
         onBack={() => setScreen("children")}
-        onRead={(resume) => {
+        onRead={(resume, story) => {
           setResumeFrom(resume);
+          setStoryKind(story);
           setScreen("story");
         }}
       />
@@ -3452,9 +3519,10 @@ export default function App() {
       <StoryScene
         child={activeChild}
         resumeSceneId={resumeFrom}
+        story={storyKind}
         onFinish={(stars) => {
           setTonightStars(stars);
-          recordStory(activeChild.id, stars);
+          recordStory(activeChild.id, stars, STORIES[storyKind].title);
           // pull this story's summary into the child's own history
           void getProgress(activeChild.id).then((progress) => {
             if (!isOfflineDemo() && progress.summary) addSummaryToLatest(activeChild.id, progress.summary);

@@ -13,6 +13,7 @@ export type ApiChild = {
     image_png?: string; // base64 PNG of the drawn avatar, repainted on fal by the backend
   };
   resume_scene_id?: string | null; // "Continue" starts from the page the child stopped at
+  story?: "adventure"; // "Your own adventure" (pages written live); omitted = Pip's story
   // Words to bring back in this story: ones the child found tricky before + the parent's focus words.
   practice_words?: string[];
 };
@@ -27,8 +28,12 @@ export type Scene = {
   avatar_position: { x: number; y: number; scale: number };
   challenge: { level: 1 | 2 | 3; prompt: string; target_words: string[] };
   challenge_audio_url?: string | null;
+  // Adventure pages: "question" = the learning question first, "choice" = then the two options.
+  // null/absent for Pip's story.
+  phase?: "question" | "choice" | null;
   avatar_url?: string | null; // painted (watercolour) avatar, once fal has finished
-  choices: null | { word: string; label: string; icon: string }[];
+  // icon null: show the label as text. image_url (optional): a preview of where this choice leads.
+  choices: null | { word: string; label: string; icon: string | null; image_url?: string | null }[];
 };
 
 export type StartSessionResponse = {
