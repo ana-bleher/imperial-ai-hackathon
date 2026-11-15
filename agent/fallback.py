@@ -104,6 +104,40 @@ def off_topic(transcript: str, candidates: list[str]) -> bool:
     return not any(heard(c, said) for c in candidates)
 
 
+CLOSE_RATIO = 0.6  # "shares most letters" with the answer (a hit needs 0.75, see similar())
+
+
+def attempt_kind(transcript: str, answers: list[str], others: list[str] = (),
+                 on_topic: list[str] = (), open_q: bool = False) -> str:
+    """How a missed answer may be praised: "none" (silence, "I don't know" or off-topic: no effort
+    praise), "close" (shares most letters with an answer, or names another option: "Ooh, close!")
+    or "attempt" (a real attempt: "Good try!")."""
+    if not words(transcript) or dont_know(transcript):
+        return "none"
+    if not open_q and off_topic(transcript, [*answers, *others, *on_topic]):
+        return "none"
+    said = settled_words(transcript)
+    if any(heard(o, said) for o in others):
+        return "close"
+    if any(SequenceMatcher(None, a, w).ratio() >= CLOSE_RATIO for a in answers for w in said if len(w) >= 3):
+        return "close"
+    return "attempt"
+
+
+def challenge_attempt(challenge: dict, transcript: str) -> str:
+    """attempt_kind for a speaking challenge (count questions: any number is on topic)."""
+    qt = questions.qtype(challenge)
+    right = questions.answers(challenge)
+    others = [o for o in challenge["target_words"] if o not in right] if qt == questions.CHOICE else []
+    on_topic = list(challenge["target_words"])
+    if qt == questions.COUNT:
+        on_topic += list(questions.NUMBERS) + list(questions.DIGITS)
+    return attempt_kind(transcript, right, others, on_topic, open_q=qt == questions.OPEN)
+
+
+EFFORT_LEADS = {"close": "Ooh, close! ", "attempt": "Good try! "}  # "none": no effort praise
+
+
 def sentences(text: str) -> int:
     return len(re.findall(r"[.!?]+(?=\s|$)", text.strip())) or 1
 
@@ -328,6 +362,7 @@ def _scene_turn(state: dict, scene: dict, narration: str, transcript: str) -> di
 
     state["tries"] += 1
     unsure = dont_know(transcript)
+    lead = EFFORT_LEADS.get(challenge_attempt(challenge, transcript), "")
     candidates = list(challenge["target_words"]) + list(challenge.get("accept") or [])
     if qt == questions.COUNT:
         candidates += list(questions.NUMBERS) + list(questions.DIGITS)
@@ -362,13 +397,13 @@ def _scene_turn(state: dict, scene: dict, narration: str, transcript: str) -> di
         state["miss_streak"] = 0
 
     limit = max_attempts(scene)
-    if state["tries"] >= limit:
+    if state["tries"] >= limit:  # effort praise only after a real attempt, else a neutral reveal
+        tried = bool(lead)
+        model = phrase if qt == questions.SAY else answer
         if qt == questions.OPEN:  # no single answer to model
-            feedback = "Good try! Let's see what happens next."
-        elif qt == questions.SAY:
-            feedback = f"Good try! It's '{phrase}'. Let's see what happens next."
-        else:  # model the answer
-            feedback = f"Good try! It's '{answer}'. Let's see what happens next."
+            feedback = ("Good try! " if tried else "") + "Let's see what happens next."
+        else:  # model the answer; at most two short sentences (the length rule)
+            feedback = f"Good try! It's '{model}'." if tried else f"Let's find out: it's '{model}'!"
         return _decision(result="miss", action="move_on", next_id=scene.get("next"),
                          feedback=feedback,
                          parent_note=f"Struggled with '{key}' - practise together",
@@ -387,16 +422,16 @@ def _scene_turn(state: dict, scene: dict, narration: str, transcript: str) -> di
                                 f"gave {questions.qtype(new)} help")
     if new is challenge:
         return _decision(result="miss", action="retry", retry=True, challenge=challenge,
-                         feedback=f"Good try! Listen: '{phrase}'. Now you try!",
+                         feedback=f"{lead}Listen: '{phrase}'. Now you try!",
                          reason=f"'{phrase}' not heard (try {state['tries']} of {limit}); modelled it again")
     if qt == questions.SAY:
         target = " ".join(new["target_words"])
         return _decision(result="miss", action="retry_with_hint", retry=True, challenge=new,
-                         feedback=f"Nice try! Listen: '{target}'. Now you try!",
+                         feedback=f"{lead}Listen: '{target}'. Now you try!",
                          reason=f"Two misses in a row; easier level {state['level']} with a hint")
     new_type = questions.qtype(new)
     # The hint always names the answer: the say-it prompt, or a choice that contains it.
-    feedback = f"Ooh, close! {new['prompt']}" if new_type == questions.SAY else f"Nice try! {new['prompt']}"
+    feedback = f"{lead}{new['prompt']}"
     return _decision(result="miss", action="retry_with_hint", retry=True, challenge=new,
                      feedback=feedback,
                      reason=f"{qt} question not answered (try {state['tries']} of {limit}); "
@@ -427,9 +462,11 @@ def _question_turn(state: dict, scene: dict, transcript: str) -> dict:
                          reason=f"Answered '{correct}' correctly on try {state['tries']}")
 
     limit = max_attempts(scene)
-    if state["tries"] >= limit:
+    kind = attempt_kind(transcript, [correct], others)
+    if state["tries"] >= limit:  # effort praise only after a real attempt, else a neutral reveal
         return _decision(result="miss", action="move_on", next_id=scene.get("next"), targets=[correct],
-                         feedback=f"Good try! It's the {correct}.", tail=f"It's the {correct}.",
+                         feedback=f"Good try! It's the {correct}." if kind != "none"
+                         else f"Let's find out: it's the {correct}!", tail=f"It's the {correct}.",
                          parent_note=f"Needed help with: {dec['prompt']} (answer: '{correct}') - talk about it together",
                          reason=f"Not answered after {limit} tries; revealed '{correct}' and moved on")
 
@@ -439,9 +476,9 @@ def _question_turn(state: dict, scene: dict, transcript: str) -> dict:
                          reason=f"Off-topic answer (try {state['tries']} of {limit}); asked the question again")
     hinted = dec.get("on_incorrect", "retry_with_hint") == "retry_with_hint"
     tail = quiz_hint(dec, state["tries"]) if hinted else dec["prompt"]
-    lead = "That's okay!" if dont_know(transcript) else ("Good try!" if state["tries"] == 1 else "Ooh, close!")
+    lead = "That's okay! " if dont_know(transcript) else EFFORT_LEADS.get(kind, "")
     return _decision(result="miss", action="retry_with_hint" if hinted else "retry", retry=True,
-                     challenge=challenge, targets=[correct], feedback=f"{lead} {tail}", tail=tail,
+                     challenge=challenge, targets=[correct], feedback=f"{lead}{tail}", tail=tail,
                      reason=f"Answer was not '{correct}' (try {state['tries']} of {limit}); "
                             + (f"gave hint {state['tries']}" if hinted else "asked again"))
 

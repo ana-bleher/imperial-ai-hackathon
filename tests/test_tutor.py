@@ -152,7 +152,7 @@ def test_agent_level_up_and_next_scene_challenge(monkeypatch):
 
 
 def test_agent_miss_retries_with_its_own_challenge(monkeypatch):
-    use(monkeypatch, *miss("retry_with_hint", "Nearly! It starts with 'ow'.", 1,
+    use(monkeypatch, *miss("retry_with_hint", "Good try! It starts with 'ow'.", 1,
                            ("ask", {"prompt": "Can you say 'owl'?", "target_words": ["owl"], "level": 1})))
     s = session()
     d, meta = decide(s, "banana")
